@@ -1,10 +1,15 @@
-"""Explicit dice, choice and operator-maintained, area-local FAQ commands."""
+"""Default commands and operator-maintained, account-local FAQ data."""
 from __future__ import annotations
 
 import random
 import re
 
-from ..runtime import Context, Plugin
+from ..runtime import Context, Plugin, PluginInfo
+
+PLUGIN = PluginInfo(
+    id="default", name="默认功能", version="0.3.0",
+    description="基础命令、掷骰子、随机选择与域内常见问题。",
+)
 
 
 _RANDOM = random.SystemRandom()
@@ -19,6 +24,40 @@ _FAQ_SET_USAGE = (
 
 
 async def setup(plugin: Plugin) -> None:
+    if plugin.config:
+        raise ValueError("默认功能插件不接受配置选项")
+
+    async def ping(context: Context, args: tuple[str, ...]) -> None:
+        await context.reply("用法：/ping" if args else "🏓 在呢！")
+
+    async def help_command(context: Context, args: tuple[str, ...]) -> None:
+        if args:
+            await context.reply("用法：/help")
+            return
+        output = "📖 可用命令\n" + "\n".join(
+            f"/{command.name} — {command.description}"
+            for command in plugin.runtime.commands(context.message)
+        )
+        await context.reply(output if len(output) <= _MAX_REPLY else output[:1997] + "...")
+
+    async def status(context: Context, args: tuple[str, ...]) -> None:
+        if args:
+            await context.reply("用法：/status")
+            return
+        snapshot = plugin.runtime.status(context.message)
+        state = snapshot["connection"]
+        output = "\n".join((
+            "📊 机器人状态",
+            f"运行时长：{snapshot['uptime']} 秒",
+            f"连接通道：{'已连接' if state['transport_open'] else '未连接'}",
+            f"鉴权确认：{'已确认' if state['auth_confirmed'] else '未确认'}",
+            f"域订阅：{'已发送' if state['subscription_sent'] else '未发送'}",
+            f"命令成功：{snapshot['command_successes']}",
+            f"命令失败：{snapshot['command_failures']}",
+            "已加载插件：" + ("、".join(info.name for info in snapshot["plugins"]) or "无"),
+        ))
+        await context.reply(output if len(output) <= _MAX_REPLY else output[:1997] + "...")
+
     async def roll(context: Context, args: tuple[str, ...]) -> None:
         notation = args[0] if args else "1d6"
         match = re.fullmatch(r"([0-9]{1,3})[dD]([0-9]{1,7})", notation)
@@ -33,7 +72,8 @@ async def setup(plugin: Plugin) -> None:
         await context.reply(f"🎲 {count}d{sides}：{', '.join(map(str, values))}（合计 {sum(values)}）")
 
     async def choose(context: Context, args: tuple[str, ...]) -> None:
-        choices = [choice.strip() for choice in " ".join(args).split("|")]
+        parts = context.message.text.strip().split(maxsplit=1)
+        choices = [choice.strip() for choice in (parts[1] if len(parts) > 1 else "").split("|")]
         if len(choices) < 2 or any(not choice or len(choice) > _MAX_REPLY for choice in choices):
             await context.reply("用法：/choose 选项一 | 选项二 | ……，至少提供两个非空选项，每项最多 2000 字符。")
             return
@@ -87,6 +127,9 @@ async def setup(plugin: Plugin) -> None:
         removed = plugin.store(context, scope="area").delete(args[0].lower())
         await context.reply("✅ 条目已删除。" if removed else "没有找到这个条目。")
 
+    plugin.command("ping", ping, description="看看机器人在不在")
+    plugin.command("help", help_command, description="查看你能使用的命令")
+    plugin.command("status", status, description="查看运行情况与连接状态")
     plugin.command("roll", roll, description="掷骰子，例如 /roll 2d6")
     plugin.command("choose", choose, description="帮你选一个，用 | 分隔选项")
     plugin.command("faq", faq, description="查看本域的常见问题")

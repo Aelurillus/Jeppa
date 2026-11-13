@@ -65,7 +65,7 @@ class CLITests(unittest.TestCase):
         # Failure happens in actual child plugin loading, before any SDK login.
         # No mocked Popen/transport is used as proof of process launch.
         plugin = self.root / "broken.py"
-        plugin.write_text("async def setup(plugin):\n    raise RuntimeError('jwt-super-private-secret')\n", encoding="utf-8")
+        plugin.write_text("from jeppa import PluginInfo\nPLUGIN = PluginInfo('broken', '故障测试', '1.0.0', '清理回归')\nasync def setup(plugin):\n    raise RuntimeError('jwt-super-private-secret')\n", encoding="utf-8")
         config = self.root / "config.toml"
         config.write_text('''[oopz]
 device_id = "test-device"
@@ -128,14 +128,14 @@ path = "jeppa.log"
         config = SimpleNamespace(log_file=self.root / "jeppa.log", log_max_bytes=120, log_backups=2)
         async def execute_commands():
             from jeppa import Context, Message, Runtime
-            from jeppa.runtime import builtins
-            runtime = Runtime("self")
+            runtime = Runtime()
             async def reply(text):
                 pass
             try:
-                await runtime.install(builtins, name="builtin")
+                await runtime.load("jeppa.plugins.default:setup")
                 for _ in range(20):
-                    await runtime.dispatch(Context(Message("/ping jwt-super-private-secret", "a", "c", "p", "m", False), reply))
+                    await runtime.dispatch(Context(Message("/ping jwt-super-private-secret", "a", "c", "p", "m", False,
+                                                           platform="oopz", bot_id="self"), reply))
                 cli.logger.error("jwt-super-private-secret", exc_info=RuntimeError("secret"))
                 logging.getLogger("oopz_sdk").error("jwt-super-private-secret")
             finally:
@@ -172,7 +172,7 @@ class LaunchCleanupTests(unittest.IsolatedAsyncioTestCase):
                 self.store = options["storage"]
                 self.options = options
 
-            async def install(self, *args, **kwargs):
+            async def load(self, *args, **kwargs):
                 raise RuntimeError("private-text")
 
             async def close(self):
@@ -190,7 +190,7 @@ class LaunchCleanupTests(unittest.IsolatedAsyncioTestCase):
             runtimes.append(value)
             return value
 
-        config = Config(auth={})
+        config = Config()
         with patch.object(cli, "Storage", side_effect=make_store), patch.object(cli, "Runtime", side_effect=make_runtime):
             with self.assertRaises(RuntimeError):
                 await cli.launch(config)

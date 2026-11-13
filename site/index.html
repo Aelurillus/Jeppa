@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Jeppa：自研 Python 文字机器人 Base，完整默认插件、账号隔离与明确的 Oopz 接入边界。非 Oopz 官方项目。">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Jeppa · 把文字命令，放进清晰的 Base</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="site-header"><div class="container header-inner">
+    <a class="brand" href="index.html" aria-label="Jeppa 首页"><img src="assets/favicon.svg" width="34" height="34" alt="">Jeppa <span class="version">0.3.0</span></a>
+    <nav class="site-nav" aria-label="主导航"><a href="index.html" aria-current="page">概览</a><a href="guide.html">开始使用</a><a href="credentials.html">本地凭据</a><a href="plugins.html">插件开发</a><a href="compatibility.html">兼容性</a></nav>
+    <button class="theme-toggle" type="button" aria-label="当前主题：跟随系统，点击切换" hidden>主题：跟随系统</button>
+  </div></header>
+  <main id="main" class="container">
+    <section class="hero" aria-labelledby="hero-title">
+      <div><p class="eyebrow">PYTHON · 自研文字机器人 BASE</p><h1 id="hero-title">功能归插件，<br>边界归 Base。</h1><p class="lead">Jeppa 把命令分发、权限、生命周期和数据隔离放进一个可维护的运行时。现有功能统一为 <code>default</code> 完整插件，从 Oopz 文字命令开始。</p><div class="actions"><a class="button" href="guide.html">开始本地接入 <span aria-hidden="true">↗</span></a><a class="button secondary" href="https://github.com/Aelurillus/Jeppa">查看源码</a></div><p class="small hero-note">Python 3.11+ · MIT · 非 Oopz 官方项目，未获其背书</p></div>
+      <div class="terminal" aria-label="默认插件交互示意，不是实时连接状态"><div class="terminal-bar"><span>default / 交互示意</span><span>不是实时状态</span></div><div class="terminal-body"><p><span class="prompt">你 ›</span> /ping<br>🏓 在呢！</p><p><span class="prompt">你 ›</span> /choose 茶 | 咖啡 | 白开水<br><span class="small">从原始选项中随机选择一项</span></p><p><span class="prompt">你 ›</span> /help<br><span class="small">仅显示当前用户、当前会话可用的命令</span></p></div></div>
+    </section>
+    <section class="section" aria-labelledby="features"><div class="section-heading"><h2 id="features">一个 Base，明确分工</h2><p>不把命令写死进核心，不用“已连接”代替真实证据。</p></div><div class="grid"><article class="card"><span class="number">01 / 运行时</span><h3>把规则集中起来</h3><p>命令权限、按会话冷却、受限命令白名单、插件作用域；加载失败回滚，退出时逆序释放已登记资源。</p></article><article class="card"><span class="number">02 / 默认插件</span><h3>现有功能完整保留</h3><p><code>ping</code>、<code>help</code>、<code>status</code>、掷骰、随机选择和域内 FAQ。可整体禁用，无隐式内置命令。</p></article><article class="card"><span class="number">03 / 数据与账号</span><h3>身份进入隔离边界</h3><p>稳定插件 ID、平台和机器人身份共同参与 SQLite 命名空间；不同账号的连接状态也分别记录。</p></article></div></section>
+    <section class="section" aria-labelledby="architecture"><div class="section-heading"><h2 id="architecture">接入可以变，核心契约要清晰</h2><p>所有插件共享同一运行时；平台收发由适配器负责，不为每个插件启动独立进程。</p></div><div class="flow"><article class="card"><span class="tag">已实现</span><h3>Oopz 适配器</h3><p>社区 SDK 接入、显式域订阅、独立账号身份。</p></article><span class="flow-arrow" aria-hidden="true">→</span><article class="card"><span class="tag">Base</span><h3>消息与命令运行时</h3><p>平台 / 账号隔离、策略、存储、资源清理。</p></article><span class="flow-arrow" aria-hidden="true">→</span><article class="card"><span class="tag">插件</span><h3>default + 可信扩展</h3><p>稳定元数据、公开状态接口、可配置作用域。</p></article></div><div class="notice"><p><strong>QQ 目前不支持。</strong>平台适配器注册边界为后续扩展留出位置，不等于已经实现 QQ、OneBot 或其他平台。Jeppa 也不提供音频、AI、管理 WebUI 或插件沙箱。</p></div><a href="plugins.html">了解插件契约 →</a></section>
+    <section class="section" aria-labelledby="honesty"><div class="section-heading"><h2 id="honesty">可维护，不承诺永远可用</h2><p>0.3.0 是当前项目版本，不是稳定性、官方授权或平台在线状态的保证。</p></div><div class="grid"><article class="card"><h3>本地处理凭据</h3><p>在自己的浏览器中取得授权账号的请求头，由本地脚本解析。官网没有上传入口，不接收或保存凭据。</p><a href="credentials.html">按步骤安全导入 →</a></article><article class="card"><h3>每日检查公开变化</h3><p>监测 SDK 发布、仓库 HEAD 和公开网页资源指纹。变化是人工复核信号，不是私有接口已经失效的结论。</p><a href="compatibility.html">检查范围与报告入口 →</a></article><article class="card"><h3>以实际证据为准</h3><p>传输打开、鉴权确认、已发送订阅分别显示；离线测试、HTTP 成功和历史实测都不能替代新版端到端验证。</p><a href="guide.html#connection">读懂连接状态 →</a></article></div></section>
+    <section class="section" aria-labelledby="next"><h2 id="next">从源码和本地配置开始</h2><p class="lead">不从 PyPI 安装未经核实的同名包。先核对平台条款与账号授权，再安装 Jeppa、导入凭据、检查配置。</p><div class="actions"><a class="button" href="guide.html#install">安装指南</a><a class="button secondary" href="https://github.com/Aelurillus/Jeppa/releases/latest">GitHub 最新发布</a></div></section>
+  </main>
+  <footer class="site-footer"><div class="container"><div class="footer-top"><strong>Jeppa / 小而清晰，认真维护。</strong><nav class="footer-links" aria-label="项目链接"><a href="https://github.com/Aelurillus/Jeppa">GitHub</a><a href="https://github.com/Aelurillus/Jeppa/blob/main/README.md">仓库文档</a><a href="https://github.com/Aelurillus/Jeppa/releases/latest">发布</a><a href="https://github.com/Aelurillus/Jeppa/security/advisories/new">私下安全报告</a></nav></div><p>Jeppa 项目官网 · 非 Oopz 官方，不隶属于 Oopz，也未获其背书。MIT 开源许可不代表平台接入授权。</p><p>纯静态页面；无分析追踪、无第三方 CDN、无凭据表单。主题切换不持久化，复制按钮只写入公开示例命令。</p></div></footer>
+  <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+</body>
+</html>

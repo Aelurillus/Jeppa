@@ -1,0 +1,134 @@
+name: 公开上游变化信号
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-public-monitor
+  cancel-in-progress: false
+
+jobs:
+  upstream:
+    name: 公开信号与固定 SDK 契约回归
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 检出项目
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 配置 Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: 采集公开元数据（不安装候选代码）
+        id: monitor
+        run: |
+          set +e
+          python scripts/check_upstream.py --output upstream-report.json
+          result=$?
+          echo "code=$result" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: 安装项目固定依赖（不使用远端候选版本）
+        id: install
+        continue-on-error: true
+        run: python -m pip install .
+      - name: 回归已固定 SDK 的适配契约
+        id: contract
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: python -m unittest discover -s tests -p test_oopz.py -v
+      - name: 保存脱敏公开报告
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upstream-public-report
+          path: upstream-report.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: 更新单一维护议题与运行摘要
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MONITOR_CODE: ${{ steps.monitor.outputs.code }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          marker = "<!-- jeppa-upstream-monitor -->"
+          status_labels = {"unchanged": "未发现变化", "changed": "发现变化", "inconclusive": "无法完整判断"}
+          try:
+              report = json.loads(Path("upstream-report.json").read_text(encoding="utf-8"))
+              status = report["status"]
+              if status not in status_labels:
+                  status = "inconclusive"
+          except (OSError, ValueError, KeyError, TypeError):
+              status = "inconclusive"
+          contract_ok = os.environ["INSTALL_OUTCOME"] == "success" and os.environ["CONTRACT_OUTCOME"] == "success"
+          contract = "通过（仅当前固定 SDK）" if contract_ok else "失败或未完成，请查看运行日志"
+          body = (
+              marker + "\n## 🔎 公开上游维护信号\n\n"
+              + "- 公开观察：**" + status_labels[status] + "**\n"
+              + "- 适配契约回归：**" + contract + "**\n"
+              + "- [本次运行与脱敏 JSON 报告 artifact](" + os.environ["RUN_URL"] + ")\n\n"
+              + "变化是人工审核信号，不证明私有 API 已损坏；网络失败不表示没有变化。"
+              + "只读取 PyPI 元数据、SDK 默认分支 HEAD、Oopz 公开入口与受限脚本，"
+              + "不登录、不调用私有接口、不安装或执行远端候选 SDK。\n\n"
+              + "维护者应下载报告并审核变化，再在本地显式运行 "
+              + "`python scripts/check_upstream.py --update-baseline --output upstream-report.json`，"
+              + "审查并提交 `scripts/upstream-baseline.json`。每日任务不会自动接受基线。\n"
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(body + "\n")
+
+          def gh(*args, payload=None):
+              command = ["gh", "api", *args]
+              if payload is not None:
+                  command += ["--input", "-"]
+              result = subprocess.run(command, input=json.dumps(payload) if payload is not None else None,
+                                      text=True, capture_output=True, check=True, timeout=60)
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          repo = os.environ["GH_REPO"]
+          # 精确 marker 而非标题检索；包含关闭议题，恢复时复用原议题，不发每日评论。
+          pages = gh(f"repos/{repo}/issues?state=all&per_page=100", "--paginate", "--slurp")
+          matches = sorted((issue for page in pages for issue in page
+                            if "pull_request" not in issue and (issue.get("body") or "").startswith(marker)),
+                           key=lambda issue: issue["number"])
+          needs_review = status != "unchanged" or not contract_ok
+          payload = {"title": "🔎 Oopz 公开上游变化与兼容性维护", "body": body,
+                     "state": "open" if needs_review else "closed"}
+          if matches:
+              gh(f"repos/{repo}/issues/{matches[0]['number']}", "--method", "PATCH", payload=payload)
+          elif needs_review:
+              payload.pop("state")
+              gh(f"repos/{repo}/issues", "--method", "POST", payload=payload)
+          PY
+      - name: 汇总失败状态（议题更新不会吞掉故障）
+        if: always()
+        env:
+          MONITOR_CODE: ${{ steps.monitor.outputs.code }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+        run: |
+          test "$MONITOR_CODE" = 0
+          test "$INSTALL_OUTCOME" = success
+          test "$CONTRACT_OUTCOME" = success

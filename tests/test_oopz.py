@@ -9,7 +9,7 @@ from oopz_sdk.events.parser import EventParser
 
 from jeppa import Runtime
 from jeppa.oopz import OopzAdapter
-from jeppa.runtime import CommandPolicy, Context, Message, builtins
+from jeppa.runtime import CommandPolicy, Context, Message
 
 
 def event(number, data):
@@ -22,8 +22,8 @@ def message(number=9, text="/ping", person="other"):
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.runtime = Runtime("self")
-        await self.runtime.install(builtins, name="builtin")
+        self.runtime = Runtime()
+        await self.runtime.load("jeppa.plugins.default:setup")
         self.bot = SimpleNamespace(
             config=SimpleNamespace(person_uid="self"),
             messages=SimpleNamespace(send_message=AsyncMock(), send_private_message=AsyncMock()),
@@ -34,13 +34,17 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.runtime.close()
 
+    def connection(self):
+        return self.runtime.status(Message("", "a", "c", "other", "m", False,
+                                           platform="oopz", bot_id="self"))["connection"]
+
     async def test_open_sends_configured_subscription_without_auth_confirmation(self):
         await self.adapter.opened(None)
         self.assertTrue(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
         self.assertTrue(self.adapter.subscription_sent)
         self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
-        self.assertEqual(self.runtime.connection, {
+        self.assertEqual(self.connection(), {
             "transport_open": True, "auth_confirmed": False, "subscription_sent": True,
         })
 
@@ -51,7 +55,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         await self.adapter.emit_event(event(21, {"checkRes": True}))
         await self.adapter.emit_event(event(21, {"checkRes": True}))
         self.assertTrue(self.adapter.auth_confirmed)
-        self.assertTrue(self.runtime.connection["auth_confirmed"])
+        self.assertTrue(self.connection()["auth_confirmed"])
         self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
 
     async def test_close_then_reopen_resets_confirmation_and_resubscribes(self):
@@ -61,7 +65,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
         self.assertFalse(self.adapter.subscription_sent)
-        self.assertEqual(self.runtime.connection, {
+        self.assertEqual(self.connection(), {
             "transport_open": False, "auth_confirmed": False, "subscription_sent": False,
         })
         await self.adapter.opened(None)
@@ -110,22 +114,24 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(value=value):
                 await self.adapter.emit_event(event(21, {"checkRes": value}))
                 self.assertFalse(self.adapter.auth_confirmed)
-                self.assertFalse(self.runtime.connection["auth_confirmed"])
+                self.assertFalse(self.connection()["auth_confirmed"])
         await self.adapter.emit_event(event(21, {"checkRes": True}))
-        self.assertTrue(self.runtime.connection["auth_confirmed"])
+        self.assertTrue(self.connection()["auth_confirmed"])
         await self.adapter.emit_event(event(21, {"checkRes": False}))
-        self.assertFalse(self.runtime.connection["auth_confirmed"])
+        self.assertFalse(self.connection()["auth_confirmed"])
 
     async def test_status_distinguishes_open_subscription_from_authentication(self):
         await self.adapter.opened(None)
         reply = AsyncMock()
-        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
+        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False,
+                                                    platform="oopz", bot_id="self"), reply))
         output = reply.await_args.args[0]
         self.assertRegex(output, r"连接通道：已连接")
         self.assertRegex(output, r"鉴权确认：未确认")
         self.assertRegex(output, r"域订阅：已发送")
         await self.adapter.closed(None, None)
-        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
+        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False,
+                                                    platform="oopz", bot_id="self"), reply))
         output = reply.await_args.args[0]
         self.assertRegex(output, r"连接通道：未连接")
         self.assertRegex(output, r"鉴权确认：未确认")
@@ -135,7 +141,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.bot.ws.send_subscribe_area_events.side_effect = RuntimeError("secret credential")
         with self.assertRaises(RuntimeError):
             await self.adapter.opened(None)
-        self.assertEqual(self.runtime.connection, {
+        self.assertEqual(self.connection(), {
             "transport_open": True, "auth_confirmed": False, "subscription_sent": False,
         })
 

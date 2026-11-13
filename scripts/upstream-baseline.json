@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "observed_at": "2026-11-13T11:10:51+00:00",
+  "sources": {
+    "pypi": {
+      "version": "0.16.0",
+      "artifacts": [
+        {
+          "filename": "oopz_sdk-0.16.0-py3-none-any.whl",
+          "sha256": "22e48eaf0b7138c19a8c9d9c38fad42595762e5262f70c98275225bdc11373e4",
+          "size": 165924,
+          "yanked": false
+        },
+        {
+          "filename": "oopz_sdk-0.16.0.tar.gz",
+          "sha256": "79307af420cfda89e384b46cdae8f270f25cae795ad52228dab3d8b129db9d83",
+          "size": 178682,
+          "yanked": false
+        }
+      ]
+    },
+    "sdk": {
+      "head": "9fe1ace981597af3c5f40b6f185d875761e3d4a8"
+    },
+    "web": {
+      "entry_sha256": "48171a2ef77fa26353c554df1dac416501c2c99cfd020f27005e9ee1978ea9e1",
+      "scripts": [
+        {
+          "resource": "web.oopz.cn/pkgs/rive/flutter-wasm@41.0.0/simd/rive_text.js",
+          "sha256": "9450240ed481fb1bf809a30fa50f639007befea8b05e290715a559b0a729526e"
+        },
+        {
+          "resource": "web.oopz.cn/rtc/v2/agora_plugin/index.js",
+          "sha256": "a516e1facae5d681613a997dc0da28a0e3530e7091d8d4a3d8e9b6ecb303214f"
+        },
+        {
+          "resource": "web.oopz.cn/rtc/v2/iris-web-rtc_n426163_w4242_0.9.9-rc.12.js",
+          "sha256": "6b5b269f092206454019f5292f1de6d2a0f556636a8e2092cf136f4ecfe20079"
+        },
+        {
+          "resource": "web.oopz.cn/rtc/v2/trtc.js",
+          "sha256": "2f2251b0b378672abbd36c0364a0a092035375a975cb93c76addf9829b3ea573"
+        },
+        {
+          "resource": "web.oopz.cn/web/00915070e5d37tgk9/main.dart.js",
+          "sha256": "f44e85576896b2e38f61ab2daac0e345fdcbf524d6ea5af9faed980d126de597"
+        }
+      ]
+    }
+  }
+}

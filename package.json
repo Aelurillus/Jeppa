@@ -8,7 +8,7 @@
     "check": "npm run check:markdown && npm run check:format && npm run check:workflows && npm run check:secrets",
     "check:markdown": "markdownlint-cli2",
     "check:format": "prettier --check \"**/*.{md,yml,yaml,json,jsonc}\"",
-    "check:workflows": "action-validator .github/workflows/ci.yml && action-validator .github/workflows/release.yml",
+    "check:workflows": "action-validator .github/workflows/ci.yml && action-validator .github/workflows/release.yml && action-validator .github/workflows/pages.yml && action-validator .github/workflows/upstream.yml",
     "check:secrets": "secretlint --no-gitignore \"**/*\"",
     "format": "prettier --write \"**/*.{md,yml,yaml,json,jsonc}\""
   },

@@ -1,25 +1,33 @@
 import asyncio
 import unittest
+from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from jeppa import Context, Message, Runtime
-from jeppa.runtime import CommandPolicy, builtins
+from jeppa.runtime import CommandPolicy, PluginInfo
+from jeppa.plugins import default
+
+
+def info(identity, name=None):
+    return PluginInfo(identity, identity if name is None else name, "1.0.0", "测试插件")
 
 
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.runtime = Runtime("self")
+        self.runtime = Runtime()
         self.replies = []
-        await self.runtime.install(builtins, name="builtin")
+        self.plugin = await self.runtime.install(default.setup, info=default.PLUGIN)
 
     async def asyncTearDown(self):
         await self.runtime.close()
 
-    async def dispatch(self, text, person="other", *, area="area", channel="channel", private=False):
+    async def dispatch(self, text, person="other", *, area="area", channel="channel", private=False, platform="oopz", bot_id="self"):
         async def reply(value):
             self.replies.append(value)
-        return await self.runtime.dispatch(Context(Message(text, area, channel, person, "message", private), reply))
+        return await self.runtime.dispatch(Context(Message(text, area, channel, person, "message", private, platform=platform, bot_id=bot_id), reply))
 
     async def test_command_boundary_arguments_help_and_self_loop(self):
         self.assertFalse(await self.dispatch("/pingpong"))
@@ -29,7 +37,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.dispatch("/ping")
         self.assertRegex(self.replies[-1], r"[\u4e00-\u9fff]")
         await self.dispatch("/help")
-        self.assertEqual({line.split()[0] for line in self.replies[-1].splitlines() if line.startswith("/")}, {"/help", "/ping", "/status"})
+        self.assertEqual({line.split()[0] for line in self.replies[-1].splitlines() if line.startswith("/")}, {"/help", "/ping", "/status", "/roll", "/choose", "/faq"})
 
 
     async def test_startup_rollback_revokes_commands_and_lifo_resources(self):
@@ -40,7 +48,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             plugin.defer(lambda: closed.append("second"))
             raise ValueError("startup failed")
         with self.assertRaises(ValueError):
-            await self.runtime.install(setup, name="broken")
+            await self.runtime.install(setup, info=info("broken"))
         self.assertEqual(closed, ["second", "first"])
         self.assertFalse(await self.dispatch("/temporary"))
 
@@ -51,7 +59,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             def fail():
                 raise RuntimeError("cleanup failed")
             plugin.defer(fail)
-        plugin = await self.runtime.install(setup, name="broken-close")
+        plugin = await self.runtime.install(setup, info=info("broken-close"))
         with self.assertRaises(BaseExceptionGroup):
             await plugin.close()
         self.assertEqual(closed, ["closed"])
@@ -69,7 +77,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         async def setup(plugin):
             plugin.task(waiting())
             plugin.task(broken())
-        plugin = await self.runtime.install(setup, name="tasks")
+        plugin = await self.runtime.install(setup, info=info("tasks"))
         await asyncio.wait_for(self.runtime.failure.wait(), timeout=1)
         self.assertIsInstance(self.runtime.error, RuntimeError)
         with self.assertRaises(BaseExceptionGroup):
@@ -77,10 +85,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cancelled.is_set())
 
     def test_session_identity_keeps_area_and_private_peer(self):
-        channel = Message("", "a", "c", "p", "m", False)
-        other_area = Message("", "b", "c", "p", "m", False)
-        private = Message("", "", "c", "p", "m", True)
-        other_peer = Message("", "", "c", "q", "m", True)
+        channel = Message("", "a", "c", "p", "m", False, platform="oopz", bot_id="self")
+        other_area = replace(channel, area="b")
+        private = replace(channel, area="", is_private=True)
+        other_peer = replace(private, person="q")
         self.assertNotEqual(channel.session_id, other_area.session_id)
         self.assertNotEqual(channel.session_id, private.session_id)
         self.assertNotEqual(private.session_id, other_peer.session_id)
@@ -88,10 +96,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_constructor_defaults_and_per_command_policy_override(self):
         await self.runtime.close()
         self.runtime = Runtime(
-            "self", default_policy=CommandPolicy(users=("operator",), channels=("staff",)),
+            default_policy=CommandPolicy(users=("operator",), channels=("staff",)),
             policies={"ping": CommandPolicy(users=("other",), channels=("channel",))},
         )
-        await self.runtime.install(builtins, name="builtin")
+        self.plugin = await self.runtime.install(default.setup, info=default.PLUGIN)
         self.assertTrue(await self.dispatch("/ping"))
         self.assertFalse(await self.dispatch("/ping", person="operator", channel="staff"))
         self.assertFalse(await self.dispatch("/help"))
@@ -116,7 +124,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def operator(context, args):
                 await context.reply("changed")
             plugin.command("operator", operator, restricted=True)
-        await self.runtime.install(setup, name="admin")
+        await self.runtime.install(setup, info=info("admin"))
         for policy in (CommandPolicy(), CommandPolicy(users=()), CommandPolicy(channels=("channel",))):
             with self.subTest(policy=policy):
                 self.runtime.policies["operator"] = policy
@@ -165,7 +173,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 await release.wait()
             plugin.command("slow", slow)
-        await self.runtime.install(setup, name="slow-plugin")
+        await self.runtime.install(setup, info=info("slow-plugin"))
         self.runtime.policies["slow"] = CommandPolicy(cooldown=10)
         with patch("jeppa.runtime.time", SimpleNamespace(monotonic=lambda: 100)):
             first = asyncio.create_task(self.dispatch("/slow"))
@@ -186,26 +194,26 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         with patch("jeppa.runtime.time", SimpleNamespace(monotonic=lambda: 110)):
             self.assertTrue(await self.dispatch("/ping"))
         self.assertEqual(len(self.runtime._cooldowns), 1)
-        await self.runtime._plugins[0].close()
+        await self.plugin.close()
         self.assertEqual(self.runtime._cooldowns, {})
-        self.assertEqual(self.runtime._plugins, [])
+        self.assertEqual(self.runtime.plugins(), ())
         self.assertFalse(await self.dispatch("/ping"))
 
     async def test_status_has_separate_states_counters_and_only_loaded_plugins(self):
         async def empty(plugin):
             pass
-        temporary = await self.runtime.install(empty, name="temporary")
+        temporary = await self.runtime.install(empty, info=info("temporary"))
         await temporary.close()
         async def broken(plugin):
             raise ValueError("secret rollback detail")
         with self.assertRaises(ValueError):
-            await self.runtime.install(broken, name="rolled-back")
-        self.runtime.connection.update(transport_open=True, auth_confirmed=False, subscription_sent=True)
+            await self.runtime.install(broken, info=info("rolled-back"))
+        self.runtime.set_connection("oopz", "self", transport_open=True, auth_confirmed=False, subscription_sent=True)
         await self.dispatch("/ping")
         await self.dispatch("/status")
         output = self.replies[-1]
         for expected in (
-            "已加载插件：builtin", "连接通道：已连接", "鉴权确认：未确认",
+            "已加载插件：默认功能", "连接通道：已连接", "鉴权确认：未确认",
             "域订阅：已发送", "命令成功：1", "命令失败：0",
         ):
             self.assertIn(expected, output)
@@ -219,7 +227,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def broken(context, args):
                 raise RuntimeError("credential=SUPERSECRET")
             plugin.command("broken", broken)
-        await self.runtime.install(setup, name="errors")
+        await self.runtime.install(setup, info=info("errors"))
         self.runtime.policies["ping"] = CommandPolicy(users=())
         self.runtime.policies["help"] = CommandPolicy(cooldown=10)
         with self.assertLogs("jeppa.runtime", level="INFO") as logs:
@@ -241,7 +249,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             async def cancelled(context, args):
                 raise asyncio.CancelledError()
             plugin.command("cancelled", cancelled)
-        await self.runtime.install(setup, name="cancellation")
+        await self.runtime.install(setup, info=info("cancellation"))
         with self.assertLogs("jeppa.runtime", level="INFO") as logs:
             with self.assertRaises(asyncio.CancelledError):
                 await self.dispatch("/cancelled")
@@ -250,9 +258,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.runtime.failure.is_set())
 
     async def test_plugin_store_requires_configured_storage(self):
-        context = Context(Message("", "a", "c", "p", "m", False), None)
+        context = Context(Message("", "a", "c", "p", "m", False, platform="oopz", bot_id="self"), None)
         with self.assertRaisesRegex(RuntimeError, "configured Storage"):
-            self.runtime._plugins[0].store(context)
+            self.plugin.store(context)
 
 
     async def test_startup_rollback_clears_reserved_cooldowns(self):
@@ -264,17 +272,17 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             await self.dispatch("/temporary")
             raise ValueError("startup failed")
         with self.assertRaises(ValueError):
-            await self.runtime.install(setup, name="rollback")
+            await self.runtime.install(setup, info=info("rollback"))
         self.assertEqual(self.runtime._cooldowns, {})
         self.assertFalse(await self.dispatch("/temporary"))
-        self.assertEqual([plugin.name for plugin in self.runtime._plugins], ["builtin"])
+        self.assertEqual(self.runtime.plugins(), (default.PLUGIN,))
 
     async def test_status_counts_failed_handlers_without_exposing_errors(self):
         async def setup(plugin):
             async def broken(context, args):
                 raise ValueError("SECRET credential")
             plugin.command("broken", broken)
-        await self.runtime.install(setup, name="errors")
+        await self.runtime.install(setup, info=info("errors"))
         with self.assertLogs("jeppa.runtime", level="ERROR"):
             with self.assertRaises(ValueError):
                 await self.dispatch("/broken")
@@ -298,25 +306,25 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 plugin.command(f"command{index}", noop, description="description" * 10)
         async def empty(plugin):
             pass
-        await self.runtime.install(commands, name="C:\\Users\\PRIVATEUSER\\plugins\\tools.py:setup")
-        await self.runtime.install(empty, name="/home/PRIVATEUSER/plugins/greet.py:setup")
+        await self.runtime.install(commands, info=info("tools", "工具插件"))
+        await self.runtime.install(empty, info=info("greet", "问候插件"))
         await self.dispatch("/status")
-        self.assertIn("tools:setup", self.replies[-1])
-        self.assertIn("greet:setup", self.replies[-1])
+        self.assertIn("工具插件", self.replies[-1])
+        self.assertIn("问候插件", self.replies[-1])
         self.assertNotIn("PRIVATEUSER", self.replies[-1])
         self.assertNotIn("plugins/", self.replies[-1])
         await self.dispatch("/help")
         self.assertLessEqual(len(self.replies[-1]), 2000)
         self.assertTrue(self.replies[-1].endswith("..."))
         for index in range(80):
-            await self.runtime.install(empty, name=f"plugin{index}" + "x" * 40)
+            await self.runtime.install(empty, info=info(f"plugin{index}", "插件" + "x" * 40))
         await self.dispatch("/status")
         self.assertLessEqual(len(self.replies[-1]), 2000)
         self.assertTrue(self.replies[-1].endswith("..."))
         self.assertIn("鉴权确认：未确认", self.replies[-1])
         self.assertIn("命令失败：0", self.replies[-1])
 
-    async def test_builtin_replies_use_chinese_without_changing_command_names(self):
+    async def test_default_replies_use_chinese_without_changing_command_names(self):
         for command in ("/ping", "/ping extra", "/help", "/help extra", "/status", "/status extra"):
             with self.subTest(command=command):
                 await self.dispatch(command)
@@ -326,3 +334,201 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         for line in self.replies[-1].splitlines():
             if line.startswith("/"):
                 self.assertRegex(line.partition(" — ")[2], r"[\u4e00-\u9fff]")
+
+    def message(self, **changes):
+        return replace(Message("", "area", "channel", "other", "m", False, platform="oopz", bot_id="self"), **changes)
+
+    def test_message_requires_nonempty_keyword_account_identity(self):
+        with self.assertRaises(TypeError):
+            Message("", "a", "c", "p", "m", False)
+        for platform, bot_id in (("", "self"), ("oopz", ""), (" ", "self"), ("oopz", None)):
+            with self.subTest(platform=platform, bot_id=bot_id), self.assertRaises(ValueError):
+                self.message(platform=platform, bot_id=bot_id)
+        original = self.message()
+        self.assertNotEqual(original.session_id, replace(original, platform="other").session_id)
+        self.assertNotEqual(original.session_id, replace(original, bot_id="second").session_id)
+        private = replace(original, is_private=True)
+        self.assertNotEqual(private.session_id, replace(private, bot_id="second").session_id)
+
+    async def test_cooldowns_and_self_filter_are_per_platform_account(self):
+        self.runtime.policies["ping"] = CommandPolicy(cooldown=10)
+        self.assertTrue(await self.dispatch("/ping"))
+        self.assertFalse(await self.dispatch("/ping"))
+        self.assertTrue(await self.dispatch("/ping", bot_id="second"))
+        self.assertTrue(await self.dispatch("/ping", platform="other"))
+        self.assertFalse(await self.dispatch("/ping", person="second", bot_id="second"))
+        self.assertTrue(await self.dispatch("/ping", person="self", bot_id="second"))
+
+    def test_connection_snapshots_isolate_accounts_and_cannot_mutate_runtime(self):
+        self.runtime.set_connection("oopz", "self", transport_open=True, auth_confirmed=True, subscription_sent=False)
+        self.runtime.set_connection("other", "self", transport_open=False, auth_confirmed=True, subscription_sent=True)
+        snapshot = self.runtime.status(self.message())
+        self.assertEqual(snapshot["connection"], {"transport_open": True, "auth_confirmed": True, "subscription_sent": False})
+        snapshot["connection"]["transport_open"] = False
+        self.assertTrue(self.runtime.status(self.message())["connection"]["transport_open"])
+        self.assertEqual(self.runtime.status(self.message(bot_id="second"))["connection"], {
+            "transport_open": False, "auth_confirmed": False, "subscription_sent": False,
+        })
+        self.assertTrue(self.runtime.status(self.message(platform="other"))["connection"]["subscription_sent"])
+        self.assertEqual(snapshot["plugins"], (default.PLUGIN,))
+        self.assertIsInstance(snapshot["uptime"], int)
+        self.assertFalse(hasattr(self.runtime, "self_id"))
+        self.assertFalse(hasattr(self.runtime, "connection"))
+
+    async def test_plugin_scope_and_policy_intersect_in_public_commands_and_dispatch(self):
+        async def setup(plugin):
+            async def scoped(context, args):
+                await context.reply("scoped")
+            plugin.command("scoped", scoped, description="受范围约束", restricted=True)
+        plugin = await self.runtime.install(setup, info=info("scope"), areas=("area",), channels=("channel",))
+        self.runtime.policies["scoped"] = CommandPolicy(users=("other",), cooldown=10)
+        self.assertIn("scoped", {command.name for command in self.runtime.commands(self.message())})
+        entry = next(command for command in self.runtime.commands(self.message()) if command.name == "scoped")
+        self.assertEqual((entry.plugin_id, entry.restricted), ("scope", True))
+        with self.assertRaises(FrozenInstanceError):
+            entry.name = "changed"
+        for changes in ({"area": "elsewhere"}, {"channel": "elsewhere"}, {"person": "outsider"}, {"is_private": True}):
+            with self.subTest(changes=changes):
+                self.assertNotIn("scoped", {command.name for command in self.runtime.commands(self.message(**changes))})
+        self.assertFalse(await self.dispatch("/scoped", area="elsewhere"))
+        self.assertFalse(await self.dispatch("/scoped", channel="elsewhere"))
+        self.assertFalse(await self.dispatch("/scoped", private=True))
+        self.assertFalse(await self.dispatch("/scoped", person="outsider"))
+        self.assertEqual(self.replies, [])
+        self.assertTrue(await self.dispatch("/scoped"))
+        self.assertFalse(await self.dispatch("/scoped"))
+        self.assertIn("scoped", {command.name for command in self.runtime.commands(self.message())})
+        await plugin.close()
+        self.assertNotIn(info("scope"), self.runtime.plugins())
+        for areas, channels in (((), None), (None, ()), (("",), None)):
+            plugin = await self.runtime.install(setup, info=info("scope"), areas=areas, channels=channels)
+            self.assertFalse(await self.dispatch("/scoped", private=True, area=""))
+            await plugin.close()
+
+    async def test_duplicate_plugin_id_rejected_before_setup_and_reserved_during_startup(self):
+        calls = []
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        async def setup(plugin):
+            calls.append(plugin.id)
+            entered.set()
+            await release.wait()
+        first = asyncio.create_task(self.runtime.install(setup, info=info("unique")))
+        try:
+            await entered.wait()
+            with self.assertRaisesRegex(ValueError, "already registered"):
+                await self.runtime.install(setup, info=info("unique"))
+        finally:
+            release.set()
+            loaded = await first
+        self.assertEqual(calls, ["unique"])
+        with self.assertRaises(ValueError):
+            await self.runtime.install(setup, info=info("unique"))
+        await loaded.close()
+        await self.runtime.install(setup, info=info("unique"))
+        self.assertEqual(calls, ["unique", "unique"])
+
+    async def test_configuration_is_copied_and_top_level_immutable(self):
+        original = {"answer": 42}
+        seen = []
+        async def setup(plugin):
+            seen.append(dict(plugin.config))
+        plugin = await self.runtime.install(setup, info=info("configurable"), config=original)
+        original["answer"] = 0
+        self.assertEqual(plugin.config["answer"], 42)
+        self.assertEqual(seen, [{"answer": 42}])
+        with self.assertRaises(TypeError):
+            plugin.config["answer"] = 1
+        with self.assertRaises(FrozenInstanceError):
+            plugin.info.id = "changed"
+        for invalid in ("Invalid", "", "with.dot", "1number"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                info(invalid)
+
+    async def test_cancelled_startup_rolls_back_commands_resources_and_id(self):
+        entered = asyncio.Event()
+        released = []
+        async def setup(plugin):
+            plugin.defer(lambda: released.append(True))
+            async def command(context, args):
+                await context.reply("temporary")
+            plugin.command("temporary", command)
+            entered.set()
+            await asyncio.Event().wait()
+        starting = asyncio.create_task(self.runtime.install(setup, info=info("cancelled")))
+        await entered.wait()
+        starting.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await starting
+        self.assertEqual(released, [True])
+        self.assertFalse(await self.dispatch("/temporary"))
+        async def replacement(plugin):
+            pass
+        await self.runtime.install(replacement, info=info("cancelled"))
+
+    async def test_external_module_metadata_settings_disable_and_stable_storage_identity(self):
+        from jeppa.storage import Storage
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.py"
+            second = root / "renamed.py"
+            source = (
+                "from jeppa import PluginInfo\n"
+                "PLUGIN = PluginInfo('stable', '稳定插件', '1.0.0', '存储回归')\n"
+                "async def setup(plugin):\n"
+                "    if plugin.config.get('reject'): raise ValueError('拒绝配置')\n"
+                "    async def remember(context, args):\n"
+                "        store = plugin.store(context)\n"
+                "        await context.reply(str(store.get('count', 0)))\n"
+                "        store.set('count', store.get('count', 0) + 1)\n"
+                "    plugin.command('remember', remember, description='记忆计数')\n"
+            )
+            first.write_text(source, encoding="utf-8")
+            second.write_text(source, encoding="utf-8")
+            storage = Storage(root / "data.sqlite3")
+            try:
+                self.runtime.storage = storage
+                disabled = await self.runtime.load(f"{first}:setup", settings={"stable": {"enabled": False, "config": {"reject": True}}})
+                self.assertIsNone(disabled)
+                self.assertNotIn("stable", {item.id for item in self.runtime.plugins()})
+                with self.assertRaises(ValueError):
+                    await self.runtime.load(f"{first}:setup", settings={"stable": {"config": {"reject": True}}})
+                loaded = await self.runtime.load(f"{first}:setup", settings={"stable": {"config": {"example": 42}, "areas": ["area"], "channels": ["channel"]}})
+                self.assertEqual(loaded.config["example"], 42)
+                self.assertFalse(await self.dispatch("/remember", area="other"))
+                self.assertTrue(await self.dispatch("/remember"))
+                self.assertEqual(self.replies[-1], "0")
+                with self.assertRaises(ValueError):
+                    await self.runtime.load(f"{second}:setup")
+                await loaded.close()
+                moved = await self.runtime.load(f"{second}:setup")
+                self.assertEqual(moved.info.id, "stable")
+                await self.dispatch("/remember")
+                self.assertEqual(self.replies[-1], "1")
+                self.assertNotIn(str(root), str(self.runtime.status(self.message())))
+                await moved.close()
+            finally:
+                storage.close()
+
+    async def test_load_rejects_missing_or_invalid_plugin_metadata_and_sync_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid.py"
+            for source, error in (
+                ("async def setup(plugin): pass\n", AttributeError),
+                ("PLUGIN = 'not metadata'\nasync def setup(plugin): pass\n", TypeError),
+                ("from jeppa import PluginInfo\nPLUGIN = PluginInfo('sync', '同步', '1', '拒绝同步加载')\ndef setup(plugin): pass\n", TypeError),
+            ):
+                with self.subTest(source=source):
+                    path.write_text(source, encoding="utf-8")
+                    with self.assertRaises(error):
+                        await self.runtime.load(f"{path}:setup")
+            self.assertEqual(self.runtime.plugins(), (default.PLUGIN,))
+
+    async def test_example_greet_uses_module_metadata_and_rejects_unknown_configuration(self):
+        example = Path(__file__).resolve().parents[1] / "examples" / "greet.py"
+        with self.assertRaises(ValueError):
+            await self.runtime.load(f"{example}:setup", settings={"greet": {"config": {"unknown": True}}})
+        plugin = await self.runtime.load(f"{example}:setup")
+        self.assertEqual(plugin.info.id, "greet")
+        await self.dispatch("/greet 世界")
+        self.assertEqual(self.replies[-1], "👋 你好，世界！")

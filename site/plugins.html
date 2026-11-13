@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Jeppa 0.3.0 插件开发：稳定 PluginInfo、公开 Runtime API、作用域、数据命名空间、清理与可信代码边界。"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>插件开发 · Jeppa</title><link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a><header class="site-header"><div class="container header-inner"><a class="brand" href="index.html" aria-label="Jeppa 首页"><img src="assets/favicon.svg" width="34" height="34" alt="">Jeppa <span class="version">0.3.0</span></a><nav class="site-nav" aria-label="主导航"><a href="index.html">概览</a><a href="guide.html">开始使用</a><a href="credentials.html">本地凭据</a><a href="plugins.html" aria-current="page">插件开发</a><a href="compatibility.html">兼容性</a></nav><button class="theme-toggle" type="button" aria-label="当前主题：跟随系统，点击切换" hidden>主题：跟随系统</button></div></header>
+  <main id="main" class="container"><div class="page-heading"><p class="eyebrow">开发 / 公开契约</p><h1>写一个插件，不必触碰核心内部。</h1><p class="lead">显式元数据、异步 setup、稳定 ID。默认功能也使用相同插件边界，而不是藏在运行时里的特殊入口。</p></div>
+  <div class="doc-layout"><aside class="toc" aria-label="本页目录"><h2>本页内容</h2><a href="#example">完整示例</a><a href="#loading">加载与设置</a><a href="#message">消息与身份</a><a href="#public-api">公开接口</a><a href="#storage">插件数据</a><a href="#lifecycle">资源生命周期</a><a href="#security">可信代码边界</a></aside><div class="article">
+    <section id="example"><h2>01 / 从一个完整问候插件开始</h2><p>在仓库根目录创建 <code>examples/greet.py</code>，或直接参考<a href="https://github.com/Aelurillus/Jeppa/blob/main/examples/greet.py">仓库中的可执行示例</a>。插件模块必须导出 <code>PLUGIN</code> 和异步 <code>setup</code>。</p><pre><code>from jeppa import Context, Plugin, PluginInfo
+
+PLUGIN = PluginInfo(
+    id="greet",
+    name="问候",
+    version="1.0.0",
+    description="按名字打个招呼",
+)
+
+
+async def setup(plugin: Plugin) -> None:
+    if plugin.config:
+        raise ValueError("问候插件不接受配置项")
+
+    async def greet(context: Context, args: tuple[str, ...]) -> None:
+        if len(args) != 1:
+            await context.reply("用法：/greet &lt;名字&gt;")
+            return
+        await context.reply(f"👋 你好，{args[0]}！")
+
+    plugin.command("greet", greet, description="打个招呼：/greet &lt;名字&gt;")</code></pre><p><code>PluginInfo</code> 为冻结、带 slots 的数据类，字段为 <code>id/name/version/description</code>。ID 符合 <code>[a-z][a-z0-9_-]*</code>，在所有已加载插件中唯一；显示名称不是身份，入口路径也不再充当数据命名空间。</p><p>在本地配置中<strong>保留 default</strong> 并加入新入口，然后重启，发送 <code>/greet Ada</code>：</p><pre><code>[bot]
+plugins = ["jeppa.plugins.default:setup", "examples/greet.py:setup"]</code></pre><p>文件路径相对于启动目录，也支持已安装模块的 <code>my_plugin:setup</code>。只有配置中声明的入口会加载，没有插件市场、自动发现或热重载。</p></section>
+    <section id="loading"><h2>02 / 加载与设置，以稳定 ID 关联</h2><pre><code>[plugins.greet]
+enabled = true
+areas = ["AUTHORIZED_INTERNAL_AREA_ID"]
+channels = ["AUTHORIZED_INTERNAL_CHANNEL_ID"]</code></pre><p><code>[plugins.ID]</code> 只作用于 <code>bot.plugins</code> 声明的入口。省略 <code>areas/channels</code> 表示不限，空数组拒绝所有；域限制存在时，私信一律不可用。插件作用域与命令权限取交集，并共同过滤帮助列表。</p><p>运行时嵌入接口：</p><pre><code>plugin = await runtime.load(
+    "examples/greet.py:setup",
+    settings={"greet": {"enabled": True}},
+)
+
+# 已有 setup 函数时，显式提供元数据：
+plugin = await runtime.install(
+    setup,
+    info=PLUGIN,
+    config={},
+    areas=None,
+    channels=None,
+)</code></pre><p><code>Runtime.load(entry, *, settings=None)</code> 在导入模块后读取 <code>PLUGIN.id</code>，再选择设置。禁用入口返回 <code>None</code>，不执行 setup，但模块顶层代码仍会被导入。重复 ID 在 setup 之前拒绝。</p><p><code>plugin.info</code> 提供元数据；<code>plugin.config</code> 是复制输入后的顶层只读映射，嵌套对象不是自动深冻结。插件应自行验证配置项和类型。示例 greet 与 default 均拒绝非空配置，不存在旧 <code>name=</code> 兼容参数或 utility 别名。</p></section>
+    <section id="message"><h2>03 / 消息有平台，也有机器人身份</h2><p><code>context.message</code> 保留 <code>text</code>、<code>area</code>、<code>channel</code>、<code>person</code>、<code>message_id</code>、<code>is_private</code> 等消息字段，并要求非空的关键字身份字段 <code>platform</code>、<code>bot_id</code>。</p><ul><li>公开会话：<code>(platform, bot_id, "channel", area, channel)</code>。</li><li>私信会话：<code>(platform, bot_id, "private", channel, person)</code>。</li><li>自身消息由 <code>message.person == message.bot_id</code> 过滤，不使用全局 <code>self_id</code>。</li></ul><p><code>await context.reply(text)</code> 交给适配器回复原会话。Oopz 回复保留域、频道 / 私信对方以及消息引用；插件不需要拼装 SDK 的原始请求。</p><p>命令首个空白分隔词必须完整匹配，区分大小写。参数按空白拆分，不做 shell 引号或转义解析；<code>/pingpong</code> 不触发 <code>/ping</code>。未知命令静默，不自动翻译用户文本。</p></section>
+    <section id="public-api"><h2>04 / 状态和帮助使用公开接口</h2><div class="table-wrap"><table><caption>Runtime 的只读查询与连接更新</caption><thead><tr><th scope="col">接口</th><th scope="col">含义</th></tr></thead><tbody><tr><td><code>runtime.commands(message)</code></td><td>返回当前消息可访问的 <code>CommandInfo</code> 元组，不消耗冷却。</td></tr><tr><td><code>runtime.plugins()</code></td><td>返回 <code>PluginInfo</code> 元组，不暴露入口路径。</td></tr><tr><td><code>runtime.status(message)</code></td><td>返回运行时长、插件、消息所属机器人连接状态、命令成功和失败次数。</td></tr><tr><td><code>runtime.set_connection(...)</code></td><td>供适配器按平台、机器人身份更新连接事实，不是全局可写状态。</td></tr></tbody></table></div><pre><code>state = runtime.status(context.message)
+# state keys:
+# uptime, plugins, connection, command_successes, command_failures
+
+runtime.set_connection(
+    "oopz", bot_id,
+    transport_open=True,
+    auth_confirmed=False,
+    subscription_sent=True,
+)</code></pre><p><code>CommandInfo</code> 为冻结数据类，字段 <code>name/description/plugin_id/restricted</code>。未知身份的连接状态全部为 false。不要读取 <code>_commands/_plugins/_started</code>，也不要写旧的 <code>runtime.connection</code>。default 的帮助与状态同样依赖公开接口。</p></section>
+    <section id="storage"><h2>05 / 存储跟随插件 ID 和消息身份</h2><pre><code>store = plugin.store(context, scope="user")
+count = store.get("visits", 0)
+store.set("visits", count + 1)
+entries = store.items()
+store.delete("obsolete-key")</code></pre><p>数据为 JSON 值，存储操作是同步本地调用。命名空间包含稳定插件 ID、平台、机器人身份及所选会话范围：</p><ul><li><code>area</code>：公开域内共享，私信禁止。</li><li><code>channel</code>：公开域 + 频道；私信保留频道及对方。</li><li><code>user</code>：公开域 + 频道 + 用户；私信保留频道及对方。</li></ul><p>相同账号标签或相同显示域号不会合并数据。更改稳定 ID 仍会改变命名空间，不会自动移动所有历史插件数据。旧 utility FAQ 的特定迁移规则见<a href="guide.html#migration">版本迁移</a>。</p><p>SQLite 仅记录插件明确写入的值；不是自动聊天记录、跨进程共享数据服务或安全沙箱。</p></section>
+    <section id="lifecycle"><h2>06 / 获取资源后，立即登记清理</h2><ul><li><code>plugin.defer(close_callback)</code> 接收同步或异步清理回调，卸载时逆序执行。</li><li><code>plugin.task(coroutine)</code> 管理后台任务，关闭时取消并等待；未处理的后台异常是致命运行错误，不悄悄忽略。</li><li>setup 失败会撤销已注册命令和已登记资源；重复命令拒绝注册。</li><li><code>await plugin.close()</code> 卸载插件并移除其命令。某项清理失败不跳过其余项，最终报告聚合错误。</li></ul><p>在 setup 中创建资源，并在成功获取后立即登记清理；不要在模块顶层开启连接、文件或任务。导入副作用无法回滚。回复或插件异常会触发可见运行失败与清理，不无限重试同一条命令。</p></section>
+    <section id="security"><h2>07 / 插件可信，不是插件安全沙箱</h2><div class="notice"><p><strong>插件拥有进程的 Python 执行权限。</strong>可以访问文件、环境或网络，也可以绕过日志约束。配置隔离和命名空间隔离不限制恶意 Python 代码；加载前先审查来源与实现。</p></div><p>不要把账号 token 传给普通命令插件，不在输出中记录真实请求或消息正文。平台协议变化由适配器与兼容检查处理；<strong>QQ 仅是未来扩展方向，没有可用适配器</strong>。</p><p>相关来源：<a href="https://github.com/Aelurillus/Jeppa/blob/main/src/jeppa/runtime.py">运行时源码</a> · <a href="https://github.com/Aelurillus/Jeppa/blob/main/CONTRIBUTING.md">贡献指南</a> · <a href="https://github.com/Aelurillus/Jeppa/blob/main/SECURITY.md">安全政策</a>。</p></section>
+  </div></div></main>
+  <footer class="site-footer"><div class="container"><div class="footer-top"><strong>Jeppa / 小而清晰，认真维护。</strong><nav class="footer-links" aria-label="项目链接"><a href="https://github.com/Aelurillus/Jeppa">GitHub</a><a href="https://github.com/Aelurillus/Jeppa/blob/main/README.md">仓库文档</a><a href="https://github.com/Aelurillus/Jeppa/releases/latest">发布</a><a href="https://github.com/Aelurillus/Jeppa/security/advisories/new">私下安全报告</a></nav></div><p>Jeppa 项目官网 · 非 Oopz 官方，不隶属于 Oopz，也未获其背书。MIT 开源许可不代表平台接入授权。</p><p>纯静态页面；无分析追踪、无第三方 CDN、无凭据表单。主题切换不持久化，复制按钮只写入公开示例命令。</p></div></footer><p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+</body>
+</html>

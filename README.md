@@ -1,6 +1,8 @@
 # Jeppa
 
-Jeppa 是面向 Oopz 的**非官方文字机器人 / 命令插件运行时**，定位类似 Koishi / Discord Bot 框架的文字命令部分，不隶属于 Oopz，也未获其背书。0.2.1 提供中文命令交互、权限与冷却、实用插件、状态诊断、隔离的 SQLite 数据，以及独立进程启停和轮转日志；帮助、状态和部分回复适量使用 emoji。没有音频、AI、管理 WebUI、OneBot 或多平台兼容层。
+Jeppa 是面向 Oopz 的**非官方文字机器人 / 命令插件运行时**，不隶属于 Oopz，也未获其背书。0.3.0 将所有现有命令整合为可禁用的 default 插件，底座管理稳定插件身份、事务生命周期、多账号监督、权限与冷却、隔离 SQLite 和独立进程。平台身份与适配器边界可扩展，但**当前仅实现 Oopz，未接入 QQ**。没有音频、AI、管理 WebUI 或 OneBot。
+
+[中文项目官网](https://aelurillus.github.io/Jeppa/) · [详细凭据接入](docs/credentials.md) · [版本下载](https://github.com/Aelurillus/Jeppa/releases)
 
 截至当前公开资料调研，尚未确认可使用的 Oopz 公共 Bot API。Jeppa 使用 [Oopzbot-SDK](https://github.com/tangqingfeng7/Oopzbot-SDK) 的 [oopz-sdk 0.16.0](https://pypi.org/project/oopz-sdk/0.16.0/)（MIT），不是官方接口；普通账号能够登录不表示存在获授权的 Bot 接口。
 
@@ -40,6 +42,8 @@ cp jeppa.example.toml jeppa.local.toml
 
 见 [jeppa.example.toml](jeppa.example.toml)。配置只读取显式 `--config` 文件与进程环境，不扫描现有 Oopz 会话，不自动加载 `.env`。文件路径和插件相对路径以启动目录为准；把真实配置保存在被忽略的 `*.local.*` 文件，并使用操作系统权限限制访问。
 
+可以运行 `jeppa import-session --input request.local.txt --area 内部域ID --output jeppa.local.toml`，从自己明确提供的单个 DevTools 请求导入；或使用 `jeppa import-session --manual --area 内部域ID` 隐藏输入三个字段。工具不联网、不执行 cURL、不扫描浏览器、不覆盖已有配置；写出文件限制 OS 权限。**复制请求本身含凭据，不要粘贴到聊天、网站或 issue**。详细步骤、支持格式、过期处理与临时文件清理见 [凭据指南](docs/credentials.md)。
+
 `[oopz]` 支持两种显式方式：
 
 - `method = "credentials"`（默认）：`device_id`、`person_uid`、`jwt_token`；可选 `private_key` PEM 字符串。JWT 过期需要更新配置再启动。签名和可选密钥解析完全交由 SDK，Jeppa 不复制上游内置私钥。
@@ -47,13 +51,17 @@ cp jeppa.example.toml jeppa.local.toml
 
 对应环境变量 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN`、`OOPZ_PRIVATE_KEY`、`OOPZ_LOGIN_METHOD`、`OOPZ_LOGIN_PHONE`、`OOPZ_LOGIN_PASSWORD` 优先于文件。不要通过命令行参数传密码，不要提交或在 issue 中粘贴以上值。
 
-`[bot].areas` 是显式订阅的域 ID 数组；默认空数组，不自动枚举并订阅账号加入的全部域。频道回复保留域和频道，私信保留对方与私信频道。`[bot].plugins` 是可信 Python 入口数组，例如 `"examples/greet.py:setup"` 或已安装模块的 `"my_plugin:setup"`。这是执行代码的权限，不是插件沙箱。
+`[bot].areas` 是显式订阅的内部域 ID 数组；默认空数组，仅私信，不自动枚举加入的全部域。`[bot].plugins` 省略时加载 `"jeppa.plugins.default:setup"`；显式 `[]` 不加载任何命令。增加第三方入口时仍需列出 default。插件是受信任的 Python 代码，不是沙箱。
+
+多账号使用 `[[accounts]]`，每项包含唯一 `id`、`platform="oopz"`、`areas`，凭据写入紧随其后的 `[accounts.oopz]`。不得同时使用 `[oopz]`、`bot.areas` 或 `OOPZ_` 环境变量。账号共同运行在一个进程和事件循环，任一账号或插件失败会停止并清理全部账号；同一实际机器人身份禁止重复连接。
+
+`[plugins.插件ID]` 支持 `enabled`、`config`、`areas` 和 `channels`。配置按模块声明的稳定 ID 匹配，不按入口路径；范围与命令权限取交集。省略范围不限制，`[]` 全部拒绝，设置 `areas` 后拒绝私信。default 不接受业务配置键。示例见 [配置模板](jeppa.example.toml)。
 
 `check-config` 只验证本地 TOML、必填字段和类型，不登录、不执行插件、不验证 JWT 有效性或平台可用性。`--help` 和配置诊断不导入 SDK。无平台凭据也可以运行帮助、回归测试和离线 SDK 边界验证。
 
 ### 权限与防刷
 
-`[permissions]` 设置默认 `users`、`channels` 和 `cooldown`；`[permissions.commands.命令名]` 逐字段覆盖。ID 使用平台内部 ID，不是昵称或显示域号。省略白名单表示不限制，空数组 `[]` 表示拒绝所有；频道限制同时适用于私信频道。冷却默认 2 秒，`0` 禁用，按命令、会话、用户隔离，在执行前预留；进程重启不保留冷却。
+`[permissions]` 设置默认 `users`、`channels` 和 `cooldown`；`[permissions.commands.命令名]` 逐字段覆盖。ID 使用平台内部 ID，不是昵称或显示域号。省略白名单表示不限制，空数组 `[]` 表示拒绝所有；频道限制同时适用于私信频道。冷却默认 2 秒，`0` 禁用，按命令、平台、机器人账号、会话、用户隔离，在执行前预留；进程重启不保留冷却。
 
 ```toml
 [permissions]
@@ -68,9 +76,9 @@ users = ["authorized-operator-person-id"]
 
 权限检查在执行前完成；`/help` 只显示该用户可用的命令，不消耗所列命令的冷却。拒绝和冷却命中均静默，不为刷屏发送额外回复。标记 `restricted=True` 的命令必须有非空用户白名单，即使默认策略开放也不会自动获得权限。Jeppa 不自动推断 Oopz 管理员角色。
 
-### 实用插件
+### 默认整体插件
 
-在 `[bot].plugins` 中加入 `"jeppa.plugins.utility:setup"`，无需额外依赖：
+`jeppa.plugins.default:setup` 拥有 `/ping`、`/help`、`/status` 及下列全部实用功能，无额外依赖。底座本身没有硬编码命令：
 
 | 命令                           | 行为                                                           |
 | ------------------------------ | -------------------------------------------------------------- |
@@ -84,9 +92,11 @@ FAQ key 为 1–64 个 ASCII 字母、数字、下划线或连字符，以字母
 
 ### SQLite 与插件数据
 
-`[storage].path` 默认 `data/jeppa.sqlite3`。仅保存插件明确写入的 JSON 值，不自动记录聊天、凭据或命令历史；重启保留数据。每次写入独立提交，schema v1，拒绝未知的未来 schema。停止后备份数据库；这是本地单进程存储，不是多实例共享数据库或插件沙箱。
+`[storage].path` 默认 `data/jeppa.sqlite3`。仅保存插件明确写入的 JSON 值，不自动记录聊天、凭据或命令历史；每次写入独立提交。schema v2 在旧 v1 上事务升级，保留历史数据并拒绝未知未来 schema。这是本地单进程存储，不是共享数据库或插件沙箱。
 
-插件通过 `plugin.store(context, scope="user")` 获得 `get(key, default)`、`set(key, value)`、`delete(key)` 和 `items()`。命名空间总是包含插件名称；公开频道 `area` 按域、`channel` 按域和频道、`user` 按域、频道和用户隔离。私信禁止 `area`，其余 scope 均保留频道及对方。变更插件入口名称会变更数据命名空间，应先迁移数据。
+命名空间包含稳定插件 ID、平台、机器人账号及会话范围。`plugin.store(context, scope="user")` 提供 `get/set/delete/items`；公开频道 `area` 按域、`channel` 按域和频道、`user` 按域、频道和用户隔离；私信禁止 `area`，其余范围保留频道和对方。更换模块入口但保持 `PLUGIN.id` 不影响新数据归属。
+
+**从 0.2.x 升级：**先 `stop` 并备份数据库与本地配置，将旧 `jeppa.plugins.utility:setup` 替换为 `jeppa.plugins.default:setup`。旧库在 SDK 确认账号身份后认领到该账号，FAQ 从旧 utility 命名空间迁入 default；冲突整笔回滚，不覆盖。多账号必须用 `[storage].legacy_account="账号id"` 明确归属，不能猜测。其他历史第三方插件入口名不会自动映射为新 ID，需要维护者显式迁移；不要删除旧库冒充迁移成功。
 
 ### 独立运行、停止与日志
 
@@ -121,7 +131,9 @@ Jeppa 不把上游 `on_ready` 当成上线完成：
 配置 `plugins = ["examples/greet.py:setup"]` 后启动，发送 `/greet Ada`。完整可执行示例见 [examples/greet.py](examples/greet.py)：
 
 ```python
-from jeppa import Context, Plugin
+from jeppa import Context, Plugin, PluginInfo
+
+PLUGIN = PluginInfo("greet", "问候", "1.0.0", "向指定名字打招呼")
 
 
 async def setup(plugin: Plugin) -> None:
@@ -135,10 +147,11 @@ async def setup(plugin: Plugin) -> None:
 ```
 
 - 命令名为 `[a-z][a-z0-9_-]*`；完整首个空白分隔词匹配，`/pingpong` 不触发 `/ping`。命令区分大小写，参数按空白拆分，不做 shell 引号／转义解析；未知命令不回复。`/help` 用中文列出有权使用的命令；`/ping` 回复“🏓 在呢！”。用户输入的选项、名称和 FAQ 正文不会被自动翻译。
-- `context.message` 保留 `text`、`area`、`channel`、`person`、`message_id`、`is_private`。`session_id` 为频道的 `("channel", area, channel)` 或私信的 `("private", channel, person)`，不把不同域或私信对方折叠成一个 ID；不会自动持久化用户数据。
+- `Message` 保留原消息字段，并要求关键字 `platform`、`bot_id`。`session_id` 为 `(platform, bot_id, "channel", area, channel)` 或 `(platform, bot_id, "private", channel, person)`；不同平台、机器人和私信对方不会共用数据或冷却。自身消息过滤以当前消息的机器人身份为准。
 - `await context.reply(text)` 使用 SDK 真实 `EventContext.reply`，频道携带 area/channel/reference message，私信携带对方/channel/reference message，不冒充频道发送。
 - 获取资源后立即 `plugin.defer(close_callback)`，支持同步或异步回调，卸载时逆序清理。`plugin.task(coroutine)` 管理后台任务，异常触发停机，卸载取消并等待任务。
 - `async def setup(plugin)` 加载失败会撤销已注册命令和资源；重复命令拒绝注册。`await plugin.close()` 卸载插件，正常退出也会关闭所有插件；某项清理失败不跳过其余资源，最后报告聚合错误。可在 Python 中使用 `Runtime.load()` / `Runtime.install()` 显式管理，不提供热重载或自动发现市场。导入文件的顶层副作用无法回滚，资源创建应放在 `setup` 并立即登记清理。
+- 插件必须导出 `PLUGIN: PluginInfo`；`id` 唯一且稳定，状态显示友好名称与版本，不暴露入口路径。`plugin.config` 为配置顶层的只读副本，插件负责其业务配置校验。`Runtime.commands(message)` 返回该会话可用命令，`Runtime.plugins()` 返回插件元信息，`Runtime.status(message)` 返回当前账号连接及计数；通过 `set_connection` 发布连接状态，不让业务插件依赖底座私有字典。
 
 ## 本地验证
 
@@ -166,6 +179,8 @@ npm run check
 `CI` 对 push、pull request 和手动触发运行；文档检查和 Python 安装 / 回归检查汇总到稳定名称 `Repository checks`。Python 配置覆盖 Ubuntu / Windows 与 3.11 / 3.13，不使用账号或仓库 secrets，不连接 Oopz。第三方 Actions 锁定完整提交 SHA，Dependabot 为 Actions、npm 维护工具和 pip 依赖创建更新 PR，仍需人工审查。
 
 `Release` 工作流在 `v*` tag 或指定现有 tag 的人工触发后核对包版本、构建 wheel／源码包、运行离线测试并创建带附件的 GitHub Release；不发布 PyPI，也不自动部署账号实例。正式版本从通过 PR 和必需检查的主分支打 tag，不能用发布流程绕过分支保护。检查通过不表示平台接入获授权或线上可用。主仓库已核实的 [GitHub 设置](https://github.com/Aelurillus/Jeppa) 包含 Issues、Discussions、私下漏洞报告及单维护者可用的 PR / `Repository checks` 保护；不会随 fork 自动复制，实际状态以 GitHub 为准。
+
+`Project website` 仅上传 `site/` 到 GitHub Pages，不上传仓库配置或账号资料。`公开上游变化信号` 每日监测公开 SDK/PyPI 元数据与 Oopz 网页脚本摘要，并跑已锁定 SDK 的离线边界回归；变化或无法判断时更新单一维护 issue。**它不是私有接口完整验证，不登录、不自动升级依赖，也不保证无变化即账号可用。** 接口升级须人工审查、更新明确基线及授权端到端验证。
 
 ## 参与贡献与安全
 

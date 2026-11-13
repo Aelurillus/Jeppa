@@ -18,7 +18,7 @@ import time
 
 from .config import ConfigError, load_config
 from . import daemon
-from .runtime import Runtime, builtins
+from .runtime import Runtime
 from .storage import Storage
 
 
@@ -94,11 +94,15 @@ async def launch(config, control: daemon.ControlServer | None = None) -> None:
     connection = None
     try:
         runtime = Runtime(default_policy=config.default_policy, policies=config.policies, storage=storage)
-        await runtime.install(builtins, name="builtin")
         for entry in config.plugins:
-            await runtime.load(entry)
-        from .oopz import run
-        connection = asyncio.create_task(run(config, runtime))
+            await runtime.load(entry, settings=config.plugin_settings)
+        legacy = config.legacy_account
+        if storage.legacy_oopz_count() and legacy is None:
+            if len(config.accounts) != 1:
+                raise ConfigError("旧数据库的账号归属不明确；请先备份，并设置 storage.legacy_account。")
+            legacy = config.accounts[0].label
+        from .adapters import run_accounts
+        connection = asyncio.create_task(run_accounts(config.accounts, runtime, legacy_account=legacy))
         # Catch synchronous/early SDK startup failures before advertising the
         # *local runtime*. Network login/authentication is deliberately separate.
         await asyncio.sleep(0)
@@ -233,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if callable(getattr(stream, "reconfigure", None)):
             stream.reconfigure(encoding="utf-8")
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "import-session":
+        from .credentials import main as import_session
+        return import_session(arguments[1:])
     parser = _ChineseParser(prog="jeppa", description="非官方 Oopz 文字机器人。仅可连接已获得明确授权的账号。")
     try:
         installed_version = version("jeppa")
@@ -246,10 +254,11 @@ def main(argv: list[str] | None = None) -> int:
         ("status", "查看本地进程状态（不登录）"),
         ("logs", "显示最近 50 行脱敏日志（不登录）"),
         ("check-config", "离线校验配置，不登录或连接 SDK"),
+        ("import-session", "从明确提供的本地请求或隐藏输入导入凭据（不联网）"),
     ):
         command = commands.add_parser(name, help=description, description=description)
         command.add_argument("--config", type=Path, metavar="配置文件", help="本地 TOML 文件；省略时仅使用环境变量")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
         config = load_config(args.config, require_auth=args.command not in {"stop", "status", "logs"})
     except ConfigError as error:

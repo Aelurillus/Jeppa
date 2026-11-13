@@ -29,7 +29,7 @@ jeppa --help
 
 开发可使用 `python -m pip install -e .`；提交前保留一次普通安装检查，避免 src 布局漏打包。Windows 可用 `.venv\Scripts\python.exe` / `.venv\Scripts\jeppa.exe` 无需激活，安装和配置示例见 [README](README.md#安装和启动)。测试采用真实上游 parser / reply context，只截获网络发送边界；不连接平台、不验证真实 JWT。测试不应读取个人会话或寻找凭据。新增测试聚焦消费者边界，避免只断言 not-throw 或复制源码。
 
-插件必须在 `async setup(plugin)` 内注册命令、立即登记资源清理；验证加载 / 启动失败回滚、关闭逆序清理、任务错误传播及命令边界。SDK 升级需复核 `event=21 checkRes`、`add_adapter.emit_event`、频道 / 私信 `EventContext.reply` 和异常行为，不能把 `on_ready` 当认证完成。运行时依赖在 `pyproject.toml`，npm 锁文件只管理文档工具；SDK 精确锁定 0.16.0，传递依赖由上游范围解析，并非完整 Python lockfile。
+插件必须导出稳定 `PLUGIN: PluginInfo`，在 `async setup(plugin)` 内注册命令并立即登记资源清理；配置通过 `plugin.config` 读取，命令、帮助和状态使用公共 Runtime API。覆盖平台／机器人身份隔离、插件范围与权限交集、加载回滚和任务错误。SDK 升级复核 `event=21 checkRes`、`emit_event`、频道／私信 reply，不把 `on_ready` 当认证。依赖精确锁定 0.16.0，传递依赖仍由上游范围解析，并非完整 Python lockfile。
 
 与 CI 一样，检查由以下命令顺序组成：
 
@@ -37,14 +37,14 @@ jeppa --help
 | ------------------------- | ----------------------------------------------------------------------------------- |
 | `npm run check:markdown`  | Markdown 语法和结构规则                                                             |
 | `npm run check:format`    | Markdown、YAML、JSON/JSONC 的解析和一致格式，含隐藏配置目录                         |
-| `npm run check:workflows` | action-validator 对 CI 和 Release 工作流进行离线 schema 校验                        |
+| `npm run check:workflows` | action-validator 对 CI、Release、Pages 和每日上游监测工作流做离线 schema 校验       |
 | `npm run check:secrets`   | Secretlint 推荐规则及 JWT 形态检查，扫描当前文件，含隐藏文件和被 Git 忽略的凭证文件 |
 
 凭证检查排除 `.git`、`node_modules`、`.venv`、Python 缓存 / 构建产物，不排除源码或真实账号配置，不扫描提交历史，不保证发现所有凭证。不要把通过检查当成没有泄漏的证明。文档检查不验证 Oopz；离线 Python 回归也不等于真实平台登录或收发成功。
 
 首次安装需要访问 npm registry；保留工具与 npm 缓存后，检查命令本身不访问网络。需要离线重装时可用 `npm ci --offline --ignore-scripts --no-audit --no-fund`，前提是锁定的所有依赖已经在本机缓存中。依赖升级后必须重新准备缓存；单独复制锁文件不能实现离线安装。
 
-格式问题可以用 `npm run format` 修复，再重新检查。不要通过全局关闭规则或忽略真实凭证来让 CI 通过。新增工作流时须同步扩展 `check:workflows` 的文件列表；当前包含 CI 和 Release。SQLite 数据及轮转日志不是源码，不纳入文本扫描；真实账号配置仍需扫描。
+格式问题可以用 `npm run format` 修复，再重新检查。不要全局关闭规则或忽略真实凭证。新增工作流须扩展 `check:workflows` 列表；当前包括 CI、Release、Project website、公开上游变化信号。SQLite 与轮转日志不是源码，不纳入文本扫描；真实账号配置仍需扫描。
 
 ## Pull request
 
@@ -63,6 +63,8 @@ jeppa --help
 仅用 GitHub 托管 runner；CI 令牌只有 `contents: read`，Release 发布 job 单独申请 `contents: write`，checkout 不保留凭证，不传入仓库 secrets。不使用 `pull_request_target` 执行外来代码。来自 fork 的首次 PR 可能需要维护者在 GitHub 上批准运行，这不等于代码已被批准。
 
 第三方 Actions 使用完整提交 SHA，并在同一行注释已核实版本。更新时核对官方仓库 tag 指向的提交与变更内容。Dependabot 每周检查 Actions、维护工具 npm 依赖和 Python pip 依赖，更新 PR 仍需审查与 CI；不会自动合并。npm 工具只作为开发依赖保存在锁文件中，仓库设置 `private: true` 防止误发 npm 包。Python 版本在 `pyproject.toml`，合并通过检查后在主分支打对应 `v版本号` tag；`Release` 会验证版本、构建并安装 wheel、运行离线回归及创建附带 wheel／源码包的 GitHub Release。可人工触发已有 tag，已发布 tag 不重写；不发布 PyPI，不携带本地配置或自动重启真实账号实例。
+
+Pages 仅部署 `site/`，deploy job 使用 `pages: write`、`id-token: write`。每日上游监测不使用账号 secrets，告警 job 使用 `issues: write`；公开资源变化只作为审查信号。维护者运行 `python scripts/check_upstream.py --update-baseline` 前必须审阅差异，不能以自动接受基线掩盖失败。官网凭据教程修改须与 `docs/credentials.md` 和本地导入器同步；网站不得接收、存储或上传令牌。
 
 当前最新 `markdownlint-cli2@0.24.1` 经 `markdownlint@0.42.1` 使用 `micromark-extension-math@3.1.0`，后者将 KaTeX 限于 `^0.16.0`。为修复 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7)，仅对这个父依赖设置 `katex: 0.18.2` 的 npm override，并更新锁文件；不降级检查工具、不忽略告警。已核对 KaTeX 0.17/0.18 的迁移说明：变更涉及内部定义 API 和 CSS 类名，当前工具使用的公开 `renderToString` 接口保留；临时数学 Markdown 的实际 lint 和渲染已通过。上游更新到包含补丁版的原生依赖范围后，应删除这个 override、重新生成锁文件，并复验数学语法检查和 CI。
 

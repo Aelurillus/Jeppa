@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Jeppa 0.3.0 中文安装指南：虚拟环境、本地凭据、default 完整插件、作用域、多账号、迁移与独立运行。">
+  <meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>开始使用 · Jeppa</title><link rel="icon" href="assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="site-header"><div class="container header-inner"><a class="brand" href="index.html" aria-label="Jeppa 首页"><img src="assets/favicon.svg" width="34" height="34" alt="">Jeppa <span class="version">0.3.0</span></a><nav class="site-nav" aria-label="主导航"><a href="index.html">概览</a><a href="guide.html" aria-current="page">开始使用</a><a href="credentials.html">本地凭据</a><a href="plugins.html">插件开发</a><a href="compatibility.html">兼容性</a></nav><button class="theme-toggle" type="button" aria-label="当前主题：跟随系统，点击切换" hidden>主题：跟随系统</button></div></header>
+  <main id="main" class="container">
+    <div class="page-heading"><p class="eyebrow">开始使用 / 0.3.0</p><h1>先在本地跑通，再交给后台。</h1><p class="lead">Python 3.11+，推荐 3.13。机器人不需要 Node.js，也不需要启动浏览器。请先确认自己的账号、目标域及平台条款允许此次接入。</p></div>
+    <div class="doc-layout"><aside class="toc" aria-label="本页目录"><h2>本页内容</h2><a href="#install">安装</a><a href="#credentials">凭据与首次启动</a><a href="#default">default 完整插件</a><a href="#policies">权限与作用域</a><a href="#accounts">多账号</a><a href="#operation">独立运行</a><a href="#connection">连接证据</a><a href="#migration">从旧版迁移</a></aside>
+    <div class="article">
+      <section id="install"><h2>01 / 安装到独立虚拟环境</h2><p>从 <a href="https://github.com/Aelurillus/Jeppa">Jeppa 仓库</a>克隆后，在仓库根目录执行。不要假定 PyPI 的同名包属于本项目；发布包请从 <a href="https://github.com/Aelurillus/Jeppa/releases/latest">GitHub Releases</a> 获取。</p><h3>Windows PowerShell</h3><pre data-copy="Windows 安装"><code>git clone https://github.com/Aelurillus/Jeppa.git
+cd Jeppa
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m jeppa --help</code></pre><p class="small">不需要激活 venv，也不需要修改 PowerShell 执行策略。下文的所有命令都应使用此虚拟环境的 Python。</p><h3>Linux / macOS</h3><pre data-copy="Linux 或 macOS 安装"><code>git clone https://github.com/Aelurillus/Jeppa.git
+cd Jeppa
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/python -m jeppa --help</code></pre><p>当前 Oopz 适配基于 <code>oopz-sdk==0.16.0</code> 社区 SDK。其 Playwright、Pillow 等传递依赖可能随安装进入环境，但 Jeppa 的文字接入不要求下载 Chromium。</p></section>
+      <section id="credentials"><h2>02 / 导入凭据，检查后前台启动</h2><p>先按<a href="credentials.html">本地凭据指南</a>从自己已获授权的账号取得单条请求。只保存到本地 <code>request.local.txt</code>，不要执行所复制的 cURL，也不要发给网站或 issue。</p><p><code>INTERNAL</code> 必须替换成目标域的<strong>内部 ID</strong>，不是界面展示的域号；多个域重复传入 <code>--area</code>。</p><pre data-copy="Windows 导入与启动"><code>.\.venv\Scripts\python.exe -m jeppa.credentials --input request.local.txt --area INTERNAL --output jeppa.local.toml
+.\.venv\Scripts\python.exe -m jeppa check-config --config jeppa.local.toml
+.\.venv\Scripts\python.exe -m jeppa run --config jeppa.local.toml</code></pre><pre data-copy="Linux 或 macOS 导入与启动"><code>.venv/bin/python -m jeppa.credentials --input request.local.txt --area INTERNAL --output jeppa.local.toml
+.venv/bin/python -m jeppa check-config --config jeppa.local.toml
+.venv/bin/python -m jeppa run --config jeppa.local.toml</code></pre><p><code>check-config</code> 只检查本地格式、必填字段和类型，不登录、不执行插件，也不证明令牌有效或平台在线。<code>run</code> 才会实际连接；首次建议保留前台，发送 <code>/ping</code> 与 <code>/help</code> 核对真实回复，Ctrl+C 清理退出。</p><div class="notice"><p><strong>默认不会订阅所有域。</strong><code>[bot].areas = []</code> 仅处理无需域订阅的私信；只填写明确授权的内部域 ID。不要为排障扩大账号或域的访问范围。</p></div></section>
+      <section id="default"><h2>03 / default 是完整功能包</h2><p>省略 <code>[bot].plugins</code> 时自动选择 <code>jeppa.plugins.default:setup</code>。显式指定入口数组后，以数组为准；设为 <code>[]</code> 则不加载任何插件，连 <code>ping/help/status</code> 也不会保留。</p><pre><code>[bot]
+areas = ["AUTHORIZED_INTERNAL_AREA_ID"]
+plugins = ["jeppa.plugins.default:setup"]</code></pre><div class="table-wrap"><table><caption>default 提供的全部命令</caption><thead><tr><th scope="col">命令</th><th scope="col">行为与边界</th></tr></thead><tbody><tr><td><code>/ping</code></td><td>文字连通性回复；不是完整平台健康检查。</td></tr><tr><td><code>/help</code></td><td>仅显示当前用户、会话有权使用的命令，不消耗所列命令的冷却。</td></tr><tr><td><code>/status</code></td><td>运行时长、插件元数据、命令计数及当前机器人连接状态。</td></tr><tr><td><code>/roll 2d6</code></td><td>默认 1d6；1–100 颗骰子，每颗 2–1000000 面。</td></tr><tr><td><code>/choose 茶 | 咖啡</code></td><td>至少两个非空选项；保留选项本身的内容。</td></tr><tr><td><code>/faq</code> / <code>/faq rules</code></td><td>列出或查询本域 FAQ；域间隔离，同域频道共享，私信不可用。</td></tr><tr><td><code>/faq-set rules 请友善交流</code></td><td>受限写入，需非空用户白名单；答案最多 1800 字符。</td></tr><tr><td><code>/faq-delete rules</code></td><td>受限删除，需非空用户白名单。</td></tr></tbody></table></div><p>FAQ key 是 1–64 个 ASCII 字母、数字、下划线或连字符，以字母或数字开头，不区分大小写。默认插件当前不接受配置项，<code>[plugins.default.config]</code> 必须为空；行为限制不是通过隐藏参数调整。</p></section>
+      <section id="policies"><h2>04 / 权限与插件作用域相交</h2><p>省略白名单表示不限制，空数组 <code>[]</code> 表示全部拒绝。FAQ 写命令标记为受限命令，即便默认策略开放，也必须显式配置非空用户白名单。Jeppa 不推断平台管理员角色。</p><pre><code>[permissions]
+cooldown = 2
+
+[permissions.commands.faq-set]
+users = ["AUTHORIZED_OPERATOR_PERSON_ID"]
+
+[permissions.commands.faq-delete]
+users = ["AUTHORIZED_OPERATOR_PERSON_ID"]
+
+[plugins.default]
+enabled = true
+areas = ["AUTHORIZED_INTERNAL_AREA_ID"]
+channels = ["AUTHORIZED_INTERNAL_CHANNEL_ID"]</code></pre><p>上述插件作用域是<strong>可选限制示例</strong>。删除 <code>areas</code>/<code>channels</code> 才是不限制；<code>areas = []</code> 或 <code>channels = []</code> 拒绝所有。只要存在插件域限制，私信就不可访问该插件。作用域与命令权限同时生效，帮助列表也遵循相同规则。</p><p>冷却按命令、会话、用户隔离，执行前预留；<code>0</code> 禁用，重启不保留。未知命令、权限拒绝与冷却命中静默处理，不追加刷屏回复。</p></section>
+      <section id="accounts"><h2>05 / 多账号共享 Base，不共享身份</h2><p>单账号使用导入器生成的 <code>[oopz]</code> 与 <code>[bot].areas</code> 即可。需要多账号时改为 <code>[[accounts]]</code>，每个账号分别声明标签、平台、订阅和认证。</p><pre><code>[bot]
+plugins = ["jeppa.plugins.default:setup"]
+
+[[accounts]]
+id = "service-a"
+platform = "oopz"
+areas = ["AUTHORIZED_INTERNAL_AREA_ID"]
+
+[accounts.oopz]
+method = "credentials"
+device_id = "REPLACE_LOCALLY"
+person_uid = "REPLACE_LOCALLY"
+jwt_token = "REPLACE_LOCALLY"</code></pre><p>这是结构示例，不能原样运行；只在本地编辑器填写凭据，按需重复账号表。多账号模式不能包含 <code>[oopz]</code> 或 <code>[bot].areas</code>（即便为空），也不能带任何 <code>OOPZ_</code> 前缀环境变量，避免认证归属不明确。只支持 <code>platform = "oopz"</code>；重复登录到相同机器人身份会被拒绝。</p><p>同一进程并行运行账号连接；致命适配或插件错误会触发整体清理。账号标签是配置标识，数据隔离使用实际平台与登录后的机器人 ID，而非任意标签。<strong>QQ 尚未实现。</strong></p><p>若数据库还有旧版未归属的 Oopz 数据，多账号必须在 <code>[storage]</code> 指定原账号标签：</p><pre><code>[storage]
+path = "data/jeppa.sqlite3"
+legacy_account = "service-a"</code></pre><p><code>legacy_account</code> 必须匹配一个已配置账号的 <code>id</code>，不是人员 ID。单账号便利配置的账号标签固定为 <code>main</code>；只有一个账号时可省略归属项。先确认旧库确属该账号，不能为了启动而随意指定。</p></section>
+      <section id="operation"><h2>06 / 独立运行与固定脱敏日志</h2><pre data-copy="Windows 后台管理"><code>.\.venv\Scripts\python.exe -m jeppa start --config jeppa.local.toml
+.\.venv\Scripts\python.exe -m jeppa status --config jeppa.local.toml
+.\.venv\Scripts\python.exe -m jeppa logs --config jeppa.local.toml
+.\.venv\Scripts\python.exe -m jeppa stop --config jeppa.local.toml</code></pre><p>Linux / macOS 将解释器替换为 <code>.venv/bin/python</code>。<code>start</code> 脱离终端运行，保留启动目录；不要移动配置。<code>run</code> 也可由 <code>stop</code> 停止。同一数据库有本机文件锁，不能重复启动；停止使用回环控制通道等待清理，不向记录的 PID 直接发送 kill。</p><p><code>status</code> 是本地进程状态，不等于账号已登录。<code>logs</code> 输出最近固定脱敏诊断；不记录命令参数、原始聊天、账号 ID、SDK 原始事件或异常正文。可信插件可以自行输出，不受此边界保证。</p><pre><code>[storage]
+path = "data/jeppa.sqlite3"
+
+[logging]
+path = "logs/jeppa.log"
+max_bytes = 1048576
+backups = 3</code></pre><p>保护配置、数据库、日志和控制文件所在目录，仅允许运行账号访问。相对路径均以启动目录为准。这不是系统服务安装器，不提供开机自启或崩溃自动拉起；系统重启后需重新 <code>start</code>。</p></section>
+      <section id="connection"><h2>07 / 三种状态，不合成一个“在线”</h2><ul><li><strong>传输打开：</strong>WebSocket 已连接并发送鉴权，不代表服务器接受身份。</li><li><strong>鉴权确认：</strong>只在收到明确的 <code>event=21</code>、<code>checkRes=true</code> 后确认。没有确认帧，就保持未确认。</li><li><strong>已发送订阅：</strong>按 SDK 时序发出显式配置的域订阅，不等于服务器确认订阅，也不等于端到端消息成功。</li></ul><p>重连会清空状态，并在通道打开后重新发送配置中的订阅。私信不需要域订阅。SDK 负责心跳与连接重试；Jeppa 不承诺离线重放、持久消息队列或恰好一次处理。<a href="compatibility.html">公开监测报告</a>不包含你的账号状态。</p></section>
+      <section id="migration"><h2>08 / 从 0.2.x 干净迁移</h2><ol><li>使用旧版本的 <code>stop</code> 停止实例，确认退出。离线备份真实配置与 SQLite 数据库及仍存在的配套日志文件；备份也需限制权限。</li><li>在原虚拟环境重新安装新源码或 Jeppa 仓库 Release wheel。</li><li>将旧入口 <code>jeppa.plugins.utility:setup</code> 替换为 <code>jeppa.plugins.default:setup</code>。没有兼容别名；旧的隐式内置命令也已移除。</li><li>自定义插件必须导出稳定 <code>PLUGIN = PluginInfo(...)</code>。使用<a href="plugins.html">新的公开 API</a>，不要继续依赖 <code>self_id</code>、全局连接状态或运行时私有字段。</li><li>执行 <code>check-config</code>，再在授权账号中前台启动。schema v1 在打开存储时事务升级到 v2；旧 Oopz 数据在实际登录身份确定后才认领。多账号必须先明确 <code>storage.legacy_account</code>，不能由哪个账号先登录来抢占旧数据。</li></ol><p>v2 命名空间包含稳定插件 ID、平台、机器人身份及会话范围。旧 utility FAQ 会在认领时迁到 <code>default</code>；目标已有同名键时整次认领失败，不覆盖数据。其他历史插件入口名不会自动改成新 ID，重命名须自行规划数据迁移。未知 schema 版本会被拒绝，不能用旧版本直接打开新库。</p><p>不要同时给两个账号认领同一份旧数据；先为原账号完成迁移，再扩展其他账号。存储是本地单进程 SQLite，只保存插件明确写入的 JSON，不自动保存聊天或凭据。</p></section>
+    </div></div>
+  </main>
+  <footer class="site-footer"><div class="container"><div class="footer-top"><strong>Jeppa / 小而清晰，认真维护。</strong><nav class="footer-links" aria-label="项目链接"><a href="https://github.com/Aelurillus/Jeppa">GitHub</a><a href="https://github.com/Aelurillus/Jeppa/blob/main/README.md">仓库文档</a><a href="https://github.com/Aelurillus/Jeppa/releases/latest">发布</a><a href="https://github.com/Aelurillus/Jeppa/security/advisories/new">私下安全报告</a></nav></div><p>Jeppa 项目官网 · 非 Oopz 官方，不隶属于 Oopz，也未获其背书。MIT 开源许可不代表平台接入授权。</p><p>纯静态页面；无分析追踪、无第三方 CDN、无凭据表单。主题切换不持久化，复制按钮只写入公开示例命令。</p></div></footer><p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+</body>
+</html>
