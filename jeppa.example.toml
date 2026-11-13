@@ -1,0 +1,15 @@
+# Copy to jeppa.local.toml. Never commit real account material.
+[oopz]
+method = "credentials"
+device_id = ""
+person_uid = ""
+jwt_token = ""
+# Optional private_key is a PEM string. If absent, SDK owns signing-key resolution.
+# Or use method = "password_api", phone = "...", password = "...".
+# This does not automate CAPTCHA or fall back to a browser.
+
+[bot]
+# Explicit area IDs only. Empty means no area subscriptions (private messages only).
+areas = []
+# Entries are trusted executable Python; paths are relative to launch cwd.
+plugins = ["examples/greet.py:setup"]

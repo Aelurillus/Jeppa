@@ -5,6 +5,16 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Python environment and build artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
 # Account/session material: never commit real values
 .env
 .env.*

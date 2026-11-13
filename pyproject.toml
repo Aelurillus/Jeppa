@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jeppa"
+version = "0.1.0.dev0"
+description = "Unofficial Oopz text bot and explicit command plugins"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Aelurillus"}]
+dependencies = ["oopz-sdk==0.16.0"]
+
+[project.scripts]
+jeppa = "jeppa.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Aelurillus/Jeppa"
+
+[tool.setuptools.packages.find]
+where = ["src"]

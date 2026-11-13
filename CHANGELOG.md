@@ -12,5 +12,10 @@
 - 针对 Markdown、YAML/JSON、Actions 工作流和当前文件凭证模式的 CI 配置及可复现的本地检查命令。
 - 主仓库首次 GitHub Actions CI 通过，开启 Issues、Discussions、私下漏洞报告、Dependabot alerts/安全更新、secret scanning/push protection，并设置单维护者可用的 `main` PR 与必需检查保护。
 - 修复维护工具间接依赖 KaTeX 的 GHSA-238p-pmpm-9mq7：为 `micromark-extension-math@3.1.0` 限定覆盖到补丁版 `0.18.2`，同步锁文件并验证数学 Markdown lint 与渲染。
+- 独立 Python 3.11+ 安装包与 `jeppa` CLI，使用精确版本 `oopz-sdk==0.16.0`，与 npm 文档维护工具分离。
+- 本地 TOML / 环境配置、离线安全诊断；真实 SDK 消息规范化与频道 / 私信回复边界，默认忽略自身消息。
+- 显式命令插件、`/ping` / `/help`、实际外部 greet 示例；加载失败回滚命令和资源，退出逆序清理，后台 / 命令错误可见失败。
+- 区分 transport-open、event 21 显式鉴权确认、域订阅已发送；不伪称上游 on_ready 或订阅发送就是线上就绪。
+- 标准库回归测试和 Python 安装检查 CI 配置，Windows / Ubuntu 与 Python 3.11 / 3.13 矩阵、稳定 Repository checks 汇总，pip Dependabot；配置变更不等于远端检查已运行通过。
 
-当前没有机器人实现、可发布软件包或部署流程；此条目不是版本发布。远端设置属于 Jeppa 主仓库，不会随 fork 自动复制。
+当前有可本地安装的文字运行时，但尚未发布 PyPI 软件包或启用部署流程；无本任务授权的平台凭据，真实 Oopz 登录、域订阅及网络收发未实测。本条目不是版本发布。远端设置属于 Jeppa 主仓库，不会随 fork 自动复制。
