@@ -158,23 +158,33 @@ class CredentialConsumerTests(unittest.TestCase):
     def test_windows_saved_file_has_protected_single_current_user_acl(self):
         from ctypes import wintypes
 
+        class ACL(ctypes.Structure):
+            _fields_ = [("revision", wintypes.BYTE), ("reserved", wintypes.BYTE),
+                        ("size", wintypes.WORD), ("count", wintypes.WORD), ("reserved2", wintypes.WORD)]
+
+        class AllowedACE(ctypes.Structure):
+            _fields_ = [("type", wintypes.BYTE), ("flags", wintypes.BYTE),
+                        ("size", wintypes.WORD), ("mask", wintypes.DWORD), ("sid", wintypes.DWORD)]
+
         advapi = ctypes.WinDLL("advapi32", use_last_error=True)
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         advapi.GetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
         advapi.GetFileSecurityW.restype = wintypes.BOOL
-        advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(wintypes.DWORD)]
-        advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW.restype = wintypes.BOOL
+        advapi.GetSecurityDescriptorControl.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.WORD), ctypes.POINTER(wintypes.DWORD)]
+        advapi.GetSecurityDescriptorControl.restype = wintypes.BOOL
+        advapi.GetSecurityDescriptorDacl.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(wintypes.LPVOID), ctypes.POINTER(wintypes.BOOL)]
+        advapi.GetSecurityDescriptorDacl.restype = wintypes.BOOL
+        advapi.GetAce.argtypes = [wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.LPVOID)]
+        advapi.GetAce.restype = wintypes.BOOL
+        advapi.EqualSid.argtypes = [wintypes.LPVOID, wintypes.LPVOID]
+        advapi.EqualSid.restype = wintypes.BOOL
         advapi.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
         advapi.OpenProcessToken.restype = wintypes.BOOL
         advapi.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
         advapi.GetTokenInformation.restype = wintypes.BOOL
-        advapi.ConvertSidToStringSidW.argtypes = [wintypes.LPVOID, ctypes.POINTER(wintypes.LPWSTR)]
-        advapi.ConvertSidToStringSidW.restype = wintypes.BOOL
         kernel.GetCurrentProcess.restype = wintypes.HANDLE
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        kernel.LocalFree.argtypes = [wintypes.LPVOID]
-        kernel.LocalFree.restype = wintypes.LPVOID
-        token, sid_text, acl_text = wintypes.HANDLE(), wintypes.LPWSTR(), wintypes.LPWSTR()
+        token = wintypes.HANDLE()
         try:
             self.assertTrue(advapi.OpenProcessToken(kernel.GetCurrentProcess(), 8, ctypes.byref(token)))
             size = wintypes.DWORD()
@@ -182,7 +192,6 @@ class CredentialConsumerTests(unittest.TestCase):
             user = ctypes.create_string_buffer(size.value)
             self.assertTrue(advapi.GetTokenInformation(token, 1, user, size, ctypes.byref(size)))
             sid = ctypes.cast(user, ctypes.POINTER(wintypes.LPVOID))[0]
-            self.assertTrue(advapi.ConvertSidToStringSidW(sid, ctypes.byref(sid_text)))
             with tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "config.local.toml"
                 importer.write_config(output, importer.parse_capture(curl_text()), [])
@@ -190,14 +199,22 @@ class CredentialConsumerTests(unittest.TestCase):
                 advapi.GetFileSecurityW(str(output), 4, None, 0, ctypes.byref(needed))
                 descriptor = ctypes.create_string_buffer(needed.value)
                 self.assertTrue(advapi.GetFileSecurityW(str(output), 4, descriptor, needed, ctypes.byref(needed)))
-                self.assertTrue(advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                    descriptor, 1, 4, ctypes.byref(acl_text), None))
-                self.assertEqual(acl_text.value, f"D:P(A;;FA;;;{sid_text.value})")
+                control, revision = wintypes.WORD(), wintypes.DWORD()
+                self.assertTrue(advapi.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)))
+                self.assertTrue(control.value & 0x1000, "DACL must be protected from inheritance")
+                present, defaulted, dacl = wintypes.BOOL(), wintypes.BOOL(), wintypes.LPVOID()
+                self.assertTrue(advapi.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)))
+                self.assertTrue(present.value and dacl.value, "A null DACL would grant public access")
+                self.assertEqual(ctypes.cast(dacl, ctypes.POINTER(ACL)).contents.count, 1)
+                ace = wintypes.LPVOID()
+                self.assertTrue(advapi.GetAce(dacl, 0, ctypes.byref(ace)))
+                allowed = ctypes.cast(ace, ctypes.POINTER(AllowedACE)).contents
+                self.assertEqual(allowed.type, 0, "Only an access-allowed ACE is expected")
+                self.assertEqual(allowed.flags, 0, "The ACE must be explicit, not inherited")
+                self.assertEqual(allowed.mask, 0x001F01FF, "Current user must retain full file access")
+                self.assertTrue(advapi.EqualSid(ace.value + AllowedACE.sid.offset, sid),
+                                "The only authorized SID must be the process user")
         finally:
-            if acl_text:
-                kernel.LocalFree(ctypes.cast(acl_text, wintypes.LPVOID))
-            if sid_text:
-                kernel.LocalFree(ctypes.cast(sid_text, wintypes.LPVOID))
             if token:
                 kernel.CloseHandle(token)
 
