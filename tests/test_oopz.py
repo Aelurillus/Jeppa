@@ -9,7 +9,7 @@ from oopz_sdk.events.parser import EventParser
 
 from jeppa import Runtime
 from jeppa.oopz import OopzAdapter
-from jeppa.runtime import builtins
+from jeppa.runtime import CommandPolicy, Context, Message, builtins
 
 
 def event(number, data):
@@ -40,6 +40,9 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.adapter.auth_confirmed)
         self.assertTrue(self.adapter.subscription_sent)
         self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
+        self.assertEqual(self.runtime.connection, {
+            "transport_open": True, "auth_confirmed": False, "subscription_sent": True,
+        })
 
     async def test_explicit_auth_confirmation_does_not_repeat_subscription(self):
         await self.adapter.opened(None)
@@ -48,6 +51,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         await self.adapter.emit_event(event(21, {"checkRes": True}))
         await self.adapter.emit_event(event(21, {"checkRes": True}))
         self.assertTrue(self.adapter.auth_confirmed)
+        self.assertTrue(self.runtime.connection["auth_confirmed"])
         self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
 
     async def test_close_then_reopen_resets_confirmation_and_resubscribes(self):
@@ -57,6 +61,9 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
         self.assertFalse(self.adapter.subscription_sent)
+        self.assertEqual(self.runtime.connection, {
+            "transport_open": False, "auth_confirmed": False, "subscription_sent": False,
+        })
         await self.adapter.opened(None)
         self.assertTrue(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
@@ -79,12 +86,15 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.runtime.failure.is_set())
         self.assertIsInstance(self.runtime.error, RuntimeError)
         self.bot.messages.send_message.assert_awaited_once()
+        self.assertEqual(self.runtime.command_successes, 0)
+        self.assertEqual(self.runtime.command_failures, 1)
 
     async def test_cancellation_is_not_recorded_as_failure(self):
         self.bot.messages.send_message.side_effect = asyncio.CancelledError()
         with self.assertRaises(asyncio.CancelledError):
             await self.adapter.emit_event(message())
         self.assertFalse(self.runtime.failure.is_set())
+        self.assertEqual(self.runtime.command_failures, 0)
 
     async def test_message_edit_does_not_execute_command(self):
         edited = message()
@@ -93,3 +103,66 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.bot.messages.send_message.assert_not_awaited()
         await self.adapter.emit_event(message())
         self.bot.messages.send_message.assert_awaited_once()
+
+    async def test_false_and_nonboolean_auth_never_claim_confirmation(self):
+        await self.adapter.opened(None)
+        for value in (False, "true", "false", 1, 0, None):
+            with self.subTest(value=value):
+                await self.adapter.emit_event(event(21, {"checkRes": value}))
+                self.assertFalse(self.adapter.auth_confirmed)
+                self.assertFalse(self.runtime.connection["auth_confirmed"])
+        await self.adapter.emit_event(event(21, {"checkRes": True}))
+        self.assertTrue(self.runtime.connection["auth_confirmed"])
+        await self.adapter.emit_event(event(21, {"checkRes": False}))
+        self.assertFalse(self.runtime.connection["auth_confirmed"])
+
+    async def test_status_distinguishes_open_subscription_from_authentication(self):
+        await self.adapter.opened(None)
+        reply = AsyncMock()
+        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
+        output = reply.await_args.args[0]
+        self.assertIn("Transport open: true", output)
+        self.assertIn("Auth confirmed: false", output)
+        self.assertIn("Subscription sent: true", output)
+        await self.adapter.closed(None, None)
+        await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
+        output = reply.await_args.args[0]
+        self.assertIn("Transport open: false", output)
+        self.assertIn("Auth confirmed: false", output)
+        self.assertIn("Subscription sent: false", output)
+
+    async def test_failed_subscription_is_not_published_as_sent_or_authenticated(self):
+        self.bot.ws.send_subscribe_area_events.side_effect = RuntimeError("secret credential")
+        with self.assertRaises(RuntimeError):
+            await self.adapter.opened(None)
+        self.assertEqual(self.runtime.connection, {
+            "transport_open": True, "auth_confirmed": False, "subscription_sent": False,
+        })
+
+    async def test_denied_command_does_not_send_reply_or_fail_adapter(self):
+        self.runtime.policies["ping"] = CommandPolicy(users=("operator",))
+        await self.adapter.emit_event(message())
+        self.bot.messages.send_message.assert_not_awaited()
+        self.assertFalse(self.runtime.failure.is_set())
+        self.assertEqual(self.runtime.command_successes, 0)
+
+    async def test_sdk_errors_log_only_exception_class(self):
+        with self.assertLogs("jeppa.oopz", level="ERROR") as logs:
+            await self.adapter.errored(None, RuntimeError("Authorization: SECRET-TOKEN private-message"))
+        text = "\n".join(logs.output)
+        self.assertIn("RuntimeError", text)
+        self.assertNotIn("Authorization", text)
+        self.assertNotIn("SECRET-TOKEN", text)
+        self.assertNotIn("private-message", text)
+
+    async def test_fatal_reply_error_diagnostics_redact_credentials_and_message(self):
+        self.bot.messages.send_message.side_effect = RuntimeError("Authorization: SECRET-TOKEN")
+        with self.assertLogs("jeppa.runtime", level="ERROR") as logs:
+            with self.assertRaises(RuntimeError):
+                await self.adapter.emit_event(message(text="/ping PRIVATE-CONTENT"))
+        text = "\n".join(logs.output)
+        self.assertIn("command=ping", text)
+        self.assertIn("exception=RuntimeError", text)
+        for secret in ("Authorization", "SECRET-TOKEN", "PRIVATE-CONTENT"):
+            self.assertNotIn(secret, text)
+        self.assertTrue(self.runtime.failure.is_set())

@@ -1,0 +1,12 @@
+include LICENSE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md jeppa.example.toml
+recursive-include src/jeppa *.py
+recursive-include tests *.py
+recursive-include examples *.py
+recursive-exclude * __pycache__ *.py[cod]
+prune data
+prune logs
+prune secrets
+prune accounts
+prune credentials
+prune sessions
+global-exclude *.local.* *.log *.sqlite3 *.sqlite3-shm *.sqlite3-wal *.control.json *.lock
