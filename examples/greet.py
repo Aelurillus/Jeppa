@@ -5,8 +5,8 @@ from jeppa import Context, Plugin
 async def setup(plugin: Plugin) -> None:
     async def greet(context: Context, args: tuple[str, ...]) -> None:
         if len(args) != 1:
-            await context.reply("Usage: /greet <name>")
+            await context.reply("用法：/greet <名字>")
             return
-        await context.reply(f"Hello, {args[0]}!")
+        await context.reply(f"👋 你好，{args[0]}！")
 
-    plugin.command("greet", greet, description="Greet one name: /greet <name>")
+    plugin.command("greet", greet, description="打个招呼：/greet <名字>")

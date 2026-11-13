@@ -22,6 +22,7 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(ConfigError) as raised:
                     load_config(path, environ={})
                 self.assertNotIn("private-value", str(raised.exception))
+                self.assertRegex(str(raised.exception), r"[\u4e00-\u9fff]")
 
     def test_missing_config_actionable_and_exit_two(self):
         from unittest.mock import patch

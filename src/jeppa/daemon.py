@@ -50,7 +50,7 @@ class InstanceLock:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             handle.close()
-            raise ControlError("Instance is already running or its lock is unavailable.") from None
+            raise ControlError("实例已在运行，或无法获取实例锁。") from None
         self.file = handle
 
     def release(self) -> None:
@@ -91,15 +91,15 @@ def read_control(database: Path) -> dict:
             raise ValueError
         return data
     except (OSError, ValueError, TypeError):
-        raise ControlError("Local control is unavailable; check the instance and file permissions.") from None
+        raise ControlError("本地控制不可用；请检查实例和文件权限。") from None
 
 
 def request(database: Path, operation: str, *, token: str | None = None, timeout: float = 2.0) -> dict:
     if operation not in {"status", "stop"}:
-        raise ValueError("Unknown control operation")
+        raise ValueError("未知的控制操作")
     data = read_control(database)
     if token is not None and not hmac.compare_digest(token, data["token"]):
-        raise ControlError("Instance changed; no control request was sent.")
+        raise ControlError("实例已变更；未发送控制请求。")
     try:
         with socket.create_connection(("127.0.0.1", data["port"]), timeout=timeout) as connection:
             connection.settimeout(timeout)
@@ -112,13 +112,13 @@ def request(database: Path, operation: str, *, token: str | None = None, timeout
         # Return only the protocol's fixed, non-sensitive fields.
         return {"ok": True, "state": result["state"]}
     except (OSError, ValueError, TypeError):
-        raise ControlError("Authenticated local control failed; no process was terminated.") from None
+        raise ControlError("本地控制鉴权失败；未终止任何进程。") from None
 
 
 def stop(database: Path, *, timeout: float = 15.0, token: str | None = None) -> None:
     deadline = time.monotonic() + timeout
     if not is_running(database):
-        raise ControlError("No instance is running.")
+        raise ControlError("当前没有正在运行的实例。")
     data = read_control(database)
     expected = token if token is not None else data["token"]
     process = None
@@ -137,7 +137,7 @@ def stop(database: Path, *, timeout: float = 15.0, token: str | None = None) -> 
         kernel.CloseHandle.restype = wintypes.BOOL
         process = kernel.OpenProcess(0x00100000, False, data["pid"])
         if not process:
-            raise ControlError("Cannot verify process exit; check local process permissions.")
+            raise ControlError("无法确认进程是否已退出；请检查本地进程权限。")
     try:
         request(database, "stop", token=expected, timeout=min(2.0, max(0.1, timeout)))
         while time.monotonic() < deadline:
@@ -150,15 +150,15 @@ def stop(database: Path, *, timeout: float = 15.0, token: str | None = None) -> 
                 if result == 0:
                     return
                 if result != 258:
-                    raise ControlError("Cannot verify graceful process exit; inspect local process state.")
+                    raise ControlError("无法确认进程是否平稳退出；请检查本地进程状态。")
             try:
                 current = read_control(database)
             except ControlError:
                 current = None
             if current is not None and not hmac.compare_digest(current["token"], expected):
-                raise ControlError("Instance changed while stopping; the replacement was not stopped.")
+                raise ControlError("停止过程中实例已变更；未停止替代实例。")
             time.sleep(0.05)
-        raise ControlError("Graceful stop timed out; inspect sanitized logs. No process was force-killed.")
+        raise ControlError("平稳停止超时；请检查脱敏日志。未强制终止任何进程。")
     finally:
         if process is not None:
             kernel.CloseHandle(process)

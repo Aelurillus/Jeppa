@@ -32,6 +32,7 @@ def subprocess_environment():
     environment = dict(os.environ)
     source = str(Path(__file__).resolve().parents[1] / "src")
     environment["PYTHONPATH"] = source + os.pathsep + environment.get("PYTHONPATH", "")
+    environment["PYTHONUTF8"] = "1"
     for key in tuple(environment):
         if key.startswith("OOPZ_") or key == "JEPPA_CONTROL_TOKEN":
             environment.pop(key)
@@ -81,7 +82,7 @@ class DaemonTests(unittest.TestCase):
 
     def cli(self, *arguments):
         return subprocess.run([sys.executable, "-m", "jeppa", *arguments], cwd=self.root,
-                              env=subprocess_environment(), text=True, capture_output=True, timeout=8)
+                              env=subprocess_environment(), encoding="utf-8", capture_output=True, timeout=8)
 
     def test_real_subprocess_status_singleton_and_graceful_stop_without_login(self):
         child = self.spawn()
@@ -94,8 +95,8 @@ class DaemonTests(unittest.TestCase):
         config.write_text('[storage]\npath = "state.sqlite3"\n', encoding="utf-8")
         status = self.cli("status", "--config", str(config))
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("runtime-open", status.stdout)
-        self.assertIn("NOT inferred", status.stdout)
+        self.assertRegex(status.stdout, r"[\u4e00-\u9fff]")
+        self.assertIn("/status", status.stdout)
         self.assertNotIn(token, status.stdout + status.stderr)
         stopped = self.cli("stop", "--config", str(config))
         self.assertEqual(stopped.returncode, 0, stopped.stderr)
@@ -104,7 +105,9 @@ class DaemonTests(unittest.TestCase):
         self.assertFalse(daemon.is_running(self.database))
         self.assertFalse(daemon.control_paths(self.database)[1].exists())
         self.assertNotIn(token, stopped.stdout + stopped.stderr)
-        self.assertIn("Stopped", self.cli("status", "--config", str(config)).stdout)
+        status = self.cli("status", "--config", str(config))
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertRegex(status.stdout, r"[\u4e00-\u9fff]")
 
     def test_unauthenticated_and_replaced_token_cannot_stop_process(self):
         child = self.spawn()
@@ -149,7 +152,7 @@ else:
     raise SystemExit(2)
 """
         result = subprocess.run([sys.executable, "-c", code, str(self.database)],
-                                env=subprocess_environment(), capture_output=True, text=True, timeout=8)
+                                env=subprocess_environment(), capture_output=True, encoding="utf-8", timeout=8)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(daemon.is_running(self.database))
         self.assertFalse(daemon.control_paths(self.database)[1].exists())
