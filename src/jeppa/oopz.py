@@ -19,15 +19,25 @@ class OopzAdapter:
         self.transport_open = False
         self.auth_confirmed = False
         self.subscription_sent = False
+        self._publish_connection()
+
+    def _publish_connection(self) -> None:
+        self.runtime.connection.update(
+            transport_open=self.transport_open,
+            auth_confirmed=self.auth_confirmed,
+            subscription_sent=self.subscription_sent,
+        )
 
     async def opened(self, _context) -> None:
         self.transport_open = True
         self.auth_confirmed = False
         self.subscription_sent = False
+        self._publish_connection()
         logger.info("transport-open; auth-sent; awaiting event=21 checkRes=true (not ready)")
         if self.areas:
             await self.bot.ws.send_subscribe_area_events(list(self.areas))
             self.subscription_sent = True
+            self._publish_connection()
             logger.info("subscription-sent for %d configured area(s); auth/subscription confirmation unavailable", len(self.areas))
         else:
             logger.info("no areas configured; no area subscription sent")
@@ -36,6 +46,7 @@ class OopzAdapter:
         self.transport_open = False
         self.auth_confirmed = False
         self.subscription_sent = False
+        self._publish_connection()
         logger.warning("transport-closed; auth/subscription state reset; SDK may reconnect")
 
     async def errored(self, _context, error) -> None:
@@ -53,6 +64,10 @@ class OopzAdapter:
             if isinstance(body, dict) and body.get("checkRes") is True and not self.auth_confirmed:
                 self.auth_confirmed = True
                 logger.info("auth-confirmed (event=21 checkRes=true)")
+                self._publish_connection()
+            elif isinstance(body, dict) and body.get("checkRes") is False:
+                self.auth_confirmed = False
+                self._publish_connection()
             return
         if not isinstance(event, MessageEvent) or event.event_name not in {"message", "message.private"}:
             return
@@ -99,4 +114,7 @@ async def run(config: Config, runtime: Runtime) -> None:
         try:
             await asyncio.gather(connection, failed, return_exceptions=True)
         finally:
-            await bot.stop()
+            try:
+                await bot.stop()
+            finally:
+                await adapter.closed(None, None)

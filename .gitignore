@@ -14,6 +14,13 @@ build/
 dist/
 .pytest_cache/
 .ruff_cache/
+data/
+logs/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.control.json
+*.lock
 
 # Account/session material: never commit real values
 .env

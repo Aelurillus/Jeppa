@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢参与 Jeppa。当前实现 Python 文字机器人 CLI、社区 SDK 适配、显式命令插件及离线回归测试。功能变更请说明需求、平台授权边界和可验证行为，不要将第三方 SDK 的存在当成平台授权；不要求普通开源文档 / 代码贡献者提供平台接入许可。
+感谢参与 Jeppa。当前实现 Python 文字机器人 CLI、命令权限与冷却、社区 SDK 适配、显式命令插件、隔离 SQLite 和独立进程管理。功能变更请说明需求、平台授权边界和可验证行为，不要将第三方 SDK 的存在当成平台授权；不要求普通开源文档／代码贡献者提供平台接入许可。
 
 ## 提交问题
 
@@ -37,14 +37,14 @@ jeppa --help
 | ------------------------- | ----------------------------------------------------------------------------------- |
 | `npm run check:markdown`  | Markdown 语法和结构规则                                                             |
 | `npm run check:format`    | Markdown、YAML、JSON/JSONC 的解析和一致格式，含隐藏配置目录                         |
-| `npm run check:workflows` | action-validator 对当前 CI 工作流进行离线 schema 校验                               |
+| `npm run check:workflows` | action-validator 对 CI 和 Release 工作流进行离线 schema 校验                        |
 | `npm run check:secrets`   | Secretlint 推荐规则及 JWT 形态检查，扫描当前文件，含隐藏文件和被 Git 忽略的凭证文件 |
 
 凭证检查排除 `.git`、`node_modules`、`.venv`、Python 缓存 / 构建产物，不排除源码或真实账号配置，不扫描提交历史，不保证发现所有凭证。不要把通过检查当成没有泄漏的证明。文档检查不验证 Oopz；离线 Python 回归也不等于真实平台登录或收发成功。
 
 首次安装需要访问 npm registry；保留工具与 npm 缓存后，检查命令本身不访问网络。需要离线重装时可用 `npm ci --offline --ignore-scripts --no-audit --no-fund`，前提是锁定的所有依赖已经在本机缓存中。依赖升级后必须重新准备缓存；单独复制锁文件不能实现离线安装。
 
-格式问题可以用 `npm run format` 修复，再重新检查。不要通过全局关闭规则或忽略真实凭证来让 CI 通过。新增工作流时须同步扩展 `check:workflows` 的文件列表；当前只有一个工作流。
+格式问题可以用 `npm run format` 修复，再重新检查。不要通过全局关闭规则或忽略真实凭证来让 CI 通过。新增工作流时须同步扩展 `check:workflows` 的文件列表；当前包含 CI 和 Release。SQLite 数据及轮转日志不是源码，不纳入文本扫描；真实账号配置仍需扫描。
 
 ## Pull request
 
@@ -60,9 +60,9 @@ jeppa --help
 
 工作流名称固定为 `CI`，汇总 job id 为 `repository-checks`，检查显示名称为 `Repository checks`，聚合文档与 Python 矩阵结果。修改名称前先调整保护规则，避免悬空的必需检查。修改配置不等于已在 GitHub 跑通；新增矩阵需报告真实运行结果。push / PR 全量运行，不用路径过滤跳过必需检查。
 
-仅用 GitHub 托管 runner；令牌只有 `contents: read`，checkout 不保留凭证，不传入仓库 secrets。不使用 `pull_request_target` 执行外来代码。来自 fork 的首次 PR 可能需要维护者在 GitHub 上批准运行，这不等于代码已被批准。
+仅用 GitHub 托管 runner；CI 令牌只有 `contents: read`，Release 发布 job 单独申请 `contents: write`，checkout 不保留凭证，不传入仓库 secrets。不使用 `pull_request_target` 执行外来代码。来自 fork 的首次 PR 可能需要维护者在 GitHub 上批准运行，这不等于代码已被批准。
 
-第三方 Actions 使用完整提交 SHA，并在同一行注释已核实版本。更新时核对官方仓库 tag 指向的提交与变更内容。Dependabot 每周检查 Actions、维护工具 npm 依赖和 Python pip 依赖，更新 PR 仍需审查与 CI；不会自动合并。npm 工具只作为开发依赖保存在锁文件中，仓库设置 `private: true` 防止误发 npm 包；Python 运行时独立打包，尚未启用发布。
+第三方 Actions 使用完整提交 SHA，并在同一行注释已核实版本。更新时核对官方仓库 tag 指向的提交与变更内容。Dependabot 每周检查 Actions、维护工具 npm 依赖和 Python pip 依赖，更新 PR 仍需审查与 CI；不会自动合并。npm 工具只作为开发依赖保存在锁文件中，仓库设置 `private: true` 防止误发 npm 包。Python 版本在 `pyproject.toml`，合并通过检查后在主分支打对应 `v版本号` tag；`Release` 会验证版本、构建并安装 wheel、运行离线回归及创建附带 wheel／源码包的 GitHub Release。可人工触发已有 tag，已发布 tag 不重写；不发布 PyPI，不携带本地配置或自动重启真实账号实例。
 
 当前最新 `markdownlint-cli2@0.24.1` 经 `markdownlint@0.42.1` 使用 `micromark-extension-math@3.1.0`，后者将 KaTeX 限于 `^0.16.0`。为修复 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7)，仅对这个父依赖设置 `katex: 0.18.2` 的 npm override，并更新锁文件；不降级检查工具、不忽略告警。已核对 KaTeX 0.17/0.18 的迁移说明：变更涉及内部定义 API 和 CSS 类名，当前工具使用的公开 `renderToString` 接口保留；临时数学 Markdown 的实际 lint 和渲染已通过。上游更新到包含补丁版的原生依赖范围后，应删除这个 override、重新生成锁文件，并复验数学语法检查和 CI。
 

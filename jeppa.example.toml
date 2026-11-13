@@ -12,4 +12,27 @@ jwt_token = ""
 # Explicit area IDs only. Empty means no area subscriptions (private messages only).
 areas = []
 # Entries are trusted executable Python; paths are relative to launch cwd.
-plugins = ["examples/greet.py:setup"]
+plugins = ["jeppa.plugins.utility:setup", "examples/greet.py:setup"]
+
+[permissions]
+# No users/channels key means unrestricted; [] explicitly denies everyone.
+# Cooldown is per command + session + user, in seconds; 0 disables it.
+cooldown = 2
+# channels = ["authorized-internal-channel-id"]
+
+# FAQ writes stay disabled until a nonempty user allowlist is configured.
+[permissions.commands.faq-set]
+users = []
+
+[permissions.commands.faq-delete]
+users = []
+
+[storage]
+# Relative paths use the launch directory, as do plugin paths.
+path = "data/jeppa.sqlite3"
+
+[logging]
+# Only fixed Jeppa status and command outcomes, never raw chat or SDK payloads.
+path = "logs/jeppa.log"
+max_bytes = 1048576
+backups = 3

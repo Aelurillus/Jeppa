@@ -2,16 +2,30 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 import importlib
 import importlib.util
 import inspect
+import logging
 from pathlib import Path
 import re
 import sys
-from typing import Any
+import time
+from typing import TYPE_CHECKING, Any
 import uuid
+
+if TYPE_CHECKING:
+    from .storage import Namespace, Storage
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandPolicy:
+    users: tuple[str, ...] | None = None
+    channels: tuple[str, ...] | None = None
+    cooldown: float = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +56,13 @@ class Context:
 Handler = Callable[[Context, tuple[str, ...]], Awaitable[None]]
 
 
+@dataclass(frozen=True, slots=True)
+class _Command:
+    handler: Handler
+    description: str
+    restricted: bool
+
+
 class Plugin:
     """Own commands and register cleanup immediately after acquiring a resource."""
 
@@ -52,15 +73,22 @@ class Plugin:
         self._cleanup: list[Callable[[], Any]] = []
         self._closed = False
 
-    def command(self, name: str, handler: Handler, *, description: str = "") -> None:
+    def command(self, name: str, handler: Handler, *, description: str = "", restricted: bool = False) -> None:
         if self._closed:
             raise RuntimeError("Plugin is closed")
         if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None:
             raise ValueError("Command name must match [a-z][a-z0-9_-]*")
         if name in self.runtime._commands:
             raise ValueError("Command already registered")
-        self.runtime._commands[name] = (handler, description)
+        self.runtime._commands[name] = _Command(handler, description, restricted)
         self._commands.append(name)
+
+    def store(self, context: Context, *, scope: str = "user") -> Namespace:
+        if self._closed:
+            raise RuntimeError("Plugin is closed")
+        if self.runtime.storage is None:
+            raise RuntimeError("Plugin storage requires a configured Storage instance")
+        return self.runtime.storage.namespace(self.name, context.message, scope=scope)
 
     def defer(self, cleanup: Callable[[], Any]) -> None:
         if self._closed:
@@ -98,6 +126,12 @@ class Plugin:
         self._closed = True
         for name in self._commands:
             self.runtime._commands.pop(name, None)
+        self.runtime._cooldowns = {
+            key: expiry for key, expiry in self.runtime._cooldowns.items()
+            if key[0] not in self._commands
+        }
+        if self in self.runtime._plugins:
+            self.runtime._plugins.remove(self)
         self._commands.clear()
         errors = []
         for cleanup in reversed(self._cleanup):
@@ -113,10 +147,21 @@ class Plugin:
 
 
 class Runtime:
-    def __init__(self, self_id: str = ""):
+    def __init__(
+        self, self_id: str = "", *, default_policy: CommandPolicy | None = None,
+        policies: Mapping[str, CommandPolicy] | None = None, storage: Storage | None = None,
+    ):
         self.self_id = self_id
-        self._commands: dict[str, tuple[Handler, str]] = {}
+        self.default_policy = default_policy if default_policy is not None else CommandPolicy()
+        self.policies = dict(policies) if policies is not None else {}
+        self.storage = storage
+        self._commands: dict[str, _Command] = {}
         self._plugins: list[Plugin] = []
+        self._cooldowns: dict[tuple[str, tuple[str, ...], str], float] = {}
+        self._started = time.monotonic()
+        self.connection = {"transport_open": False, "auth_confirmed": False, "subscription_sent": False}
+        self.command_successes = 0
+        self.command_failures = 0
         self.failure = asyncio.Event()
         self.error: BaseException | None = None
 
@@ -167,22 +212,55 @@ class Runtime:
             plugin.defer(lambda: sys.modules.pop(module_name, None))
         return plugin
 
+    def _allowed(self, name: str, command: _Command, message: Message) -> bool:
+        policy = self.policies.get(name, self.default_policy)
+        if command.restricted and not policy.users:
+            return False
+        return (
+            (policy.users is None or message.person in policy.users)
+            and (policy.channels is None or message.channel in policy.channels)
+        )
+
     async def dispatch(self, context: Context) -> bool:
+        started = time.monotonic()
         message = context.message
         if message.person == self.self_id:
             return False
         parts = message.text.strip().split()
         if not parts or not parts[0].startswith("/"):
             return False
-        command = self._commands.get(parts[0][1:])
+        name = parts[0][1:]
+        command = self._commands.get(name)
         if command is None:
             return False
-        await command[0](context, tuple(parts[1:]))
+        if not self._allowed(name, command, message):
+            logger.info("command=%s outcome=denied elapsed=%.6f", name, time.monotonic() - started)
+            return False
+        if self._cooldowns:
+            self._cooldowns = {key: expiry for key, expiry in self._cooldowns.items() if expiry > started}
+        key = (name, message.session_id, message.person)
+        if key in self._cooldowns:
+            logger.info("command=%s outcome=cooldown elapsed=%.6f", name, time.monotonic() - started)
+            return False
+        cooldown = self.policies.get(name, self.default_policy).cooldown
+        if cooldown > 0:
+            self._cooldowns[key] = started + cooldown
+        try:
+            await command.handler(context, tuple(parts[1:]))
+        except asyncio.CancelledError:
+            logger.info("command=%s outcome=cancelled elapsed=%.6f", name, time.monotonic() - started)
+            raise
+        except Exception as error:
+            self.command_failures += 1
+            logger.error("command=%s outcome=failed elapsed=%.6f exception=%s", name, time.monotonic() - started, type(error).__name__)
+            raise
+        self.command_successes += 1
+        logger.info("command=%s outcome=success elapsed=%.6f", name, time.monotonic() - started)
         return True
 
     async def close(self) -> None:
         errors = []
-        for plugin in reversed(self._plugins):
+        for plugin in reversed(tuple(self._plugins)):
             try:
                 await plugin.close()
             except BaseException as error:
@@ -190,6 +268,16 @@ class Runtime:
         self._plugins.clear()
         if errors:
             raise BaseExceptionGroup("Runtime cleanup failed", errors)
+
+
+def _plugin_label(name: str) -> str:
+    source, separator, setup = name.rpartition(":")
+    if not separator or not setup.isidentifier():
+        source, setup = name, ""
+    label = source.replace("\\", "/").rsplit("/", 1)[-1]
+    if label.endswith(".py"):
+        label = label[:-3]
+    return f"{label}:{setup}" if setup else label
 
 
 async def builtins(plugin: Plugin) -> None:
@@ -200,7 +288,30 @@ async def builtins(plugin: Plugin) -> None:
         if args:
             await context.reply("Usage: /help")
             return
-        await context.reply("\n".join(f"/{name} — {description}" for name, (_, description) in sorted(plugin.runtime._commands.items())))
+        output = "\n".join(
+            f"/{name} — {command.description}"
+            for name, command in sorted(plugin.runtime._commands.items())
+            if plugin.runtime._allowed(name, command, context.message)
+        )
+        await context.reply(output if len(output) <= 2000 else output[:1997] + "...")
+
+    async def status(context: Context, args: tuple[str, ...]) -> None:
+        if args:
+            await context.reply("Usage: /status")
+            return
+        runtime = plugin.runtime
+        state = runtime.connection
+        output = "\n".join((
+            f"Uptime: {max(0, int(time.monotonic() - runtime._started))}s",
+            f"Transport open: {str(state['transport_open']).lower()}",
+            f"Auth confirmed: {str(state['auth_confirmed']).lower()}",
+            f"Subscription sent: {str(state['subscription_sent']).lower()}",
+            f"Commands succeeded: {runtime.command_successes}",
+            f"Commands failed: {runtime.command_failures}",
+            "Plugins: " + (", ".join(_plugin_label(loaded.name) for loaded in runtime._plugins) or "none"),
+        ))
+        await context.reply(output if len(output) <= 2000 else output[:1997] + "...")
 
     plugin.command("ping", ping, description="Check bot response")
     plugin.command("help", help_command, description="List registered commands")
+    plugin.command("status", status, description="Show local runtime and connection status")

@@ -4,8 +4,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+import math
+import re
 import tomllib
 from collections.abc import Mapping
+
+from .runtime import CommandPolicy
 
 
 class ConfigError(ValueError):
@@ -17,9 +21,15 @@ class Config:
     auth: dict[str, str] = field(repr=False)
     areas: tuple[str, ...] = ()
     plugins: tuple[str, ...] = ()
+    default_policy: CommandPolicy = field(default_factory=lambda: CommandPolicy(cooldown=2.0))
+    policies: dict[str, CommandPolicy] = field(default_factory=dict)
+    database: Path = Path("data/jeppa.sqlite3")
+    log_file: Path = Path("logs/jeppa.log")
+    log_max_bytes: int = 1_048_576
+    log_backups: int = 3
 
 
-def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None) -> Config:
+def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None = None, require_auth: bool = True) -> Config:
     env = os.environ if environ is None else environ
     data = {}
     if path is not None:
@@ -28,8 +38,8 @@ def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None =
                 data = tomllib.load(source)
         except (OSError, tomllib.TOMLDecodeError):
             raise ConfigError("Cannot read configuration TOML; check --config path, permissions and syntax.") from None
-    if set(data) - {"oopz", "bot"}:
-        raise ConfigError("Unknown configuration section; allowed: [oopz], [bot].")
+    if set(data) - {"oopz", "bot", "permissions", "storage", "logging"}:
+        raise ConfigError("Unknown configuration section; see jeppa.example.toml.")
     auth = data.get("oopz", {})
     bot = data.get("bot", {})
     if not isinstance(auth, dict) or not isinstance(bot, dict):
@@ -48,7 +58,7 @@ def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None =
     if method not in {"credentials", "password_api"}:
         raise ConfigError("Set method to credentials or password_api; browser login is not supported by Jeppa.")
     required = ("device_id", "person_uid", "jwt_token") if method == "credentials" else ("phone", "password")
-    if any(not auth.get(key, "").strip() for key in required):
+    if require_auth and any(not auth.get(key, "").strip() for key in required):
         raise ConfigError("Missing Oopz configuration. Copy jeppa.example.toml to jeppa.local.toml, fill [oopz], then run jeppa check-config --config jeppa.local.toml. Or set OOPZ_DEVICE_ID/OOPZ_PERSON_UID/OOPZ_JWT_TOKEN; password API login requires OOPZ_LOGIN_METHOD=password_api and OOPZ_LOGIN_PHONE/OOPZ_LOGIN_PASSWORD.")
     auth["method"] = method
     lists = {}
@@ -57,4 +67,57 @@ def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None =
         if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
             raise ConfigError(f"bot.{key} must be an array of non-empty strings.")
         lists[key] = tuple(value)
-    return Config(auth, **lists)
+    permissions = _table(data, "permissions", {"users", "channels", "cooldown", "commands"})
+    default_policy = _policy(permissions, CommandPolicy(cooldown=2.0))
+    overrides = permissions.get("commands", {})
+    if not isinstance(overrides, dict):
+        raise ConfigError("permissions.commands must be a table.")
+    policies = {}
+    for name, values in overrides.items():
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None or not isinstance(values, dict):
+            raise ConfigError("Command policies require valid command names and tables.")
+        if set(values) - {"users", "channels", "cooldown"}:
+            raise ConfigError("Unknown command policy key; allowed: users, channels, cooldown.")
+        policies[name] = _policy(values, default_policy)
+    storage = _table(data, "storage", {"path"})
+    logs = _table(data, "logging", {"path", "max_bytes", "backups"})
+    max_bytes = logs.get("max_bytes", 1_048_576)
+    backups = logs.get("backups", 3)
+    if type(max_bytes) is not int or max_bytes < 1024 or type(backups) is not int or not 1 <= backups <= 100:
+        raise ConfigError("logging.max_bytes must be an integer >= 1024; backups must be 1..100.")
+    return Config(
+        auth, **lists, default_policy=default_policy, policies=policies,
+        database=_path(storage, "data/jeppa.sqlite3"),
+        log_file=_path(logs, "logs/jeppa.log"),
+        log_max_bytes=max_bytes, log_backups=backups,
+    )
+
+
+def _table(data: dict, name: str, allowed: set[str]) -> dict:
+    value = data.get(name, {})
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ConfigError(f"Invalid [{name}] table or unknown key; see jeppa.example.toml.")
+    return value
+
+
+def _path(values: dict, default: str) -> Path:
+    value = values.get("path", default)
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        raise ConfigError("Storage and logging paths must be non-empty path strings.")
+    return Path(value)
+
+
+def _policy(values: dict, inherited: CommandPolicy) -> CommandPolicy:
+    allowlists = {}
+    for key in ("users", "channels"):
+        if key not in values:
+            allowlists[key] = getattr(inherited, key)
+            continue
+        value = values[key]
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise ConfigError("Permission allowlists must be arrays of non-empty ID strings.")
+        allowlists[key] = tuple(value)
+    cooldown = values.get("cooldown", inherited.cooldown)
+    if type(cooldown) not in (int, float) or not math.isfinite(cooldown) or cooldown < 0:
+        raise ConfigError("Command cooldown must be a finite non-negative number of seconds.")
+    return CommandPolicy(**allowlists, cooldown=float(cooldown))
