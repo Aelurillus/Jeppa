@@ -43,7 +43,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .site-header { border-bottom: 1px solid var(--line); }
 .header-inner { display: flex; align-items: center; gap: 1.5rem; min-height: 88px; flex-wrap: wrap; padding-block: 1rem; }
 .brand { display: inline-flex; align-items: center; gap: .65rem; text-decoration: none; color: var(--ink); font-size: 1.45rem; font-weight: 750; letter-spacing: -.05em; }
-.brand img { width: 34px; height: 34px; }
+.brand img { width: 160px; height: auto; }
+.logo-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-light { display: none; }
+  :root:not([data-theme="light"]) .logo-dark { display: block; }
+}
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
 .version { color: var(--muted); font: .75rem ui-monospace, Consolas, monospace; border: 1px solid var(--line); padding: .25rem .45rem; border-radius: 5px; letter-spacing: 0; }
 .site-nav { margin-left: auto; display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: center; }
 .site-nav a { font-size: .9rem; text-decoration: none; color: var(--muted); padding-block: .3rem; }
