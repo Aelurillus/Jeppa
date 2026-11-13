@@ -37,54 +37,54 @@ def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None =
             with path.open("rb") as source:
                 data = tomllib.load(source)
         except (OSError, tomllib.TOMLDecodeError):
-            raise ConfigError("Cannot read configuration TOML; check --config path, permissions and syntax.") from None
+            raise ConfigError("无法读取 TOML 配置；请检查 --config 路径、权限和语法。") from None
     if set(data) - {"oopz", "bot", "permissions", "storage", "logging"}:
-        raise ConfigError("Unknown configuration section; see jeppa.example.toml.")
+        raise ConfigError("存在未知配置节；请参阅 jeppa.example.toml。")
     auth = data.get("oopz", {})
     bot = data.get("bot", {})
     if not isinstance(auth, dict) or not isinstance(bot, dict):
-        raise ConfigError("[oopz] and [bot] must be tables.")
+        raise ConfigError("[oopz] 和 [bot] 必须为配置表。")
     fields = ("device_id", "person_uid", "jwt_token", "private_key", "phone", "password", "method")
     if set(auth) - set(fields) or set(bot) - {"areas", "plugins"}:
-        raise ConfigError("Unknown configuration key; see jeppa.example.toml.")
+        raise ConfigError("存在未知配置项；请参阅 jeppa.example.toml。")
     auth = dict(auth)
     for key in fields:
         name = "OOPZ_LOGIN_" + key.upper() if key in {"phone", "password", "method"} else "OOPZ_" + key.upper()
         if name in env:
             auth[key] = env[name]
         if key in auth and not isinstance(auth[key], str):
-            raise ConfigError("All [oopz] values must be strings.")
+            raise ConfigError("[oopz] 中的所有值必须为字符串。")
     method = auth.get("method", "credentials")
     if method not in {"credentials", "password_api"}:
-        raise ConfigError("Set method to credentials or password_api; browser login is not supported by Jeppa.")
+        raise ConfigError("请将 method 设为 credentials 或 password_api；Jeppa 不支持浏览器登录。")
     required = ("device_id", "person_uid", "jwt_token") if method == "credentials" else ("phone", "password")
     if require_auth and any(not auth.get(key, "").strip() for key in required):
-        raise ConfigError("Missing Oopz configuration. Copy jeppa.example.toml to jeppa.local.toml, fill [oopz], then run jeppa check-config --config jeppa.local.toml. Or set OOPZ_DEVICE_ID/OOPZ_PERSON_UID/OOPZ_JWT_TOKEN; password API login requires OOPZ_LOGIN_METHOD=password_api and OOPZ_LOGIN_PHONE/OOPZ_LOGIN_PASSWORD.")
+        raise ConfigError("缺少 Oopz 配置。请将 jeppa.example.toml 复制为 jeppa.local.toml，填写 [oopz]，再运行 jeppa check-config --config jeppa.local.toml。也可设置 OOPZ_DEVICE_ID/OOPZ_PERSON_UID/OOPZ_JWT_TOKEN；密码 API 登录需要设置 OOPZ_LOGIN_METHOD=password_api 和 OOPZ_LOGIN_PHONE/OOPZ_LOGIN_PASSWORD。")
     auth["method"] = method
     lists = {}
     for key in ("areas", "plugins"):
         value = bot.get(key, [])
         if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError(f"bot.{key} must be an array of non-empty strings.")
+            raise ConfigError(f"bot.{key} 必须为非空字符串数组。")
         lists[key] = tuple(value)
     permissions = _table(data, "permissions", {"users", "channels", "cooldown", "commands"})
     default_policy = _policy(permissions, CommandPolicy(cooldown=2.0))
     overrides = permissions.get("commands", {})
     if not isinstance(overrides, dict):
-        raise ConfigError("permissions.commands must be a table.")
+        raise ConfigError("permissions.commands 必须为配置表。")
     policies = {}
     for name, values in overrides.items():
         if re.fullmatch(r"[a-z][a-z0-9_-]*", name) is None or not isinstance(values, dict):
-            raise ConfigError("Command policies require valid command names and tables.")
+            raise ConfigError("命令权限配置必须使用有效命令名和配置表。")
         if set(values) - {"users", "channels", "cooldown"}:
-            raise ConfigError("Unknown command policy key; allowed: users, channels, cooldown.")
+            raise ConfigError("存在未知命令权限配置项；仅允许 users、channels、cooldown。")
         policies[name] = _policy(values, default_policy)
     storage = _table(data, "storage", {"path"})
     logs = _table(data, "logging", {"path", "max_bytes", "backups"})
     max_bytes = logs.get("max_bytes", 1_048_576)
     backups = logs.get("backups", 3)
     if type(max_bytes) is not int or max_bytes < 1024 or type(backups) is not int or not 1 <= backups <= 100:
-        raise ConfigError("logging.max_bytes must be an integer >= 1024; backups must be 1..100.")
+        raise ConfigError("logging.max_bytes 必须为不小于 1024 的整数；backups 必须为 1 到 100 的整数。")
     return Config(
         auth, **lists, default_policy=default_policy, policies=policies,
         database=_path(storage, "data/jeppa.sqlite3"),
@@ -96,14 +96,14 @@ def load_config(path: Path | None = None, *, environ: Mapping[str, str] | None =
 def _table(data: dict, name: str, allowed: set[str]) -> dict:
     value = data.get(name, {})
     if not isinstance(value, dict) or set(value) - allowed:
-        raise ConfigError(f"Invalid [{name}] table or unknown key; see jeppa.example.toml.")
+        raise ConfigError(f"[{name}] 配置表无效或存在未知配置项；请参阅 jeppa.example.toml。")
     return value
 
 
 def _path(values: dict, default: str) -> Path:
     value = values.get("path", default)
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
-        raise ConfigError("Storage and logging paths must be non-empty path strings.")
+        raise ConfigError("存储和日志路径必须为非空路径字符串。")
     return Path(value)
 
 
@@ -115,9 +115,9 @@ def _policy(values: dict, inherited: CommandPolicy) -> CommandPolicy:
             continue
         value = values[key]
         if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError("Permission allowlists must be arrays of non-empty ID strings.")
+            raise ConfigError("权限白名单必须为非空 ID 字符串数组。")
         allowlists[key] = tuple(value)
     cooldown = values.get("cooldown", inherited.cooldown)
     if type(cooldown) not in (int, float) or not math.isfinite(cooldown) or cooldown < 0:
-        raise ConfigError("Command cooldown must be a finite non-negative number of seconds.")
+        raise ConfigError("命令冷却时间必须为有限的非负秒数。")
     return CommandPolicy(**allowlists, cooldown=float(cooldown))

@@ -33,25 +33,25 @@ class OopzAdapter:
         self.auth_confirmed = False
         self.subscription_sent = False
         self._publish_connection()
-        logger.info("transport-open; auth-sent; awaiting event=21 checkRes=true (not ready)")
+        logger.info("连接通道已打开；已发送鉴权；等待 event=21 checkRes=true（尚未确认就绪）")
         if self.areas:
             await self.bot.ws.send_subscribe_area_events(list(self.areas))
             self.subscription_sent = True
             self._publish_connection()
-            logger.info("subscription-sent for %d configured area(s); auth/subscription confirmation unavailable", len(self.areas))
+            logger.info("已发送 %d 个配置域的订阅；鉴权和订阅确认仍不可知", len(self.areas))
         else:
-            logger.info("no areas configured; no area subscription sent")
+            logger.info("未配置域；未发送域订阅")
 
     async def closed(self, _context, _event) -> None:
         self.transport_open = False
         self.auth_confirmed = False
         self.subscription_sent = False
         self._publish_connection()
-        logger.warning("transport-closed; auth/subscription state reset; SDK may reconnect")
+        logger.warning("连接通道已关闭；鉴权和订阅状态已重置；SDK 可能重连")
 
     async def errored(self, _context, error) -> None:
         # Exception messages and payloads may include HTTP headers or credentials.
-        logger.error("SDK error (%s); details withheld to protect credentials", type(error).__name__)
+        logger.error("SDK 错误（%s）；已隐藏详情以保护凭据", type(error).__name__)
 
     async def emit_event(self, event) -> None:
         from oopz_sdk.events.context import EventContext
@@ -63,7 +63,7 @@ class OopzAdapter:
                 body = json.loads(body)
             if isinstance(body, dict) and body.get("checkRes") is True and not self.auth_confirmed:
                 self.auth_confirmed = True
-                logger.info("auth-confirmed (event=21 checkRes=true)")
+                logger.info("鉴权已确认（event=21 checkRes=true）")
                 self._publish_connection()
             elif isinstance(body, dict) and body.get("checkRes") is False:
                 self.auth_confirmed = False

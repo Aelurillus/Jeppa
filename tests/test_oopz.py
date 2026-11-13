@@ -121,15 +121,15 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         reply = AsyncMock()
         await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
         output = reply.await_args.args[0]
-        self.assertIn("Transport open: true", output)
-        self.assertIn("Auth confirmed: false", output)
-        self.assertIn("Subscription sent: true", output)
+        self.assertRegex(output, r"连接通道：已连接")
+        self.assertRegex(output, r"鉴权确认：未确认")
+        self.assertRegex(output, r"域订阅：已发送")
         await self.adapter.closed(None, None)
         await self.runtime.dispatch(Context(Message("/status", "a", "c", "other", "m", False), reply))
         output = reply.await_args.args[0]
-        self.assertIn("Transport open: false", output)
-        self.assertIn("Auth confirmed: false", output)
-        self.assertIn("Subscription sent: false", output)
+        self.assertRegex(output, r"连接通道：未连接")
+        self.assertRegex(output, r"鉴权确认：未确认")
+        self.assertRegex(output, r"域订阅：未发送")
 
     async def test_failed_subscription_is_not_published_as_sent_or_authenticated(self):
         self.bot.ws.send_subscribe_area_events.side_effect = RuntimeError("secret credential")
@@ -151,6 +151,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             await self.adapter.errored(None, RuntimeError("Authorization: SECRET-TOKEN private-message"))
         text = "\n".join(logs.output)
         self.assertIn("RuntimeError", text)
+        self.assertRegex(text, r"[\u4e00-\u9fff]")
         self.assertNotIn("Authorization", text)
         self.assertNotIn("SECRET-TOKEN", text)
         self.assertNotIn("private-message", text)
@@ -161,8 +162,8 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await self.adapter.emit_event(message(text="/ping PRIVATE-CONTENT"))
         text = "\n".join(logs.output)
-        self.assertIn("command=ping", text)
-        self.assertIn("exception=RuntimeError", text)
+        self.assertIn("ping", text)
+        self.assertIn("RuntimeError", text)
         for secret in ("Authorization", "SECRET-TOKEN", "PRIVATE-CONTENT"):
             self.assertNotIn(secret, text)
         self.assertTrue(self.runtime.failure.is_set())

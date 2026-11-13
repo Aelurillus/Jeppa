@@ -234,13 +234,13 @@ class Runtime:
         if command is None:
             return False
         if not self._allowed(name, command, message):
-            logger.info("command=%s outcome=denied elapsed=%.6f", name, time.monotonic() - started)
+            logger.info("命令=%s 结果=无权限 耗时=%.6f秒", name, time.monotonic() - started)
             return False
         if self._cooldowns:
             self._cooldowns = {key: expiry for key, expiry in self._cooldowns.items() if expiry > started}
         key = (name, message.session_id, message.person)
         if key in self._cooldowns:
-            logger.info("command=%s outcome=cooldown elapsed=%.6f", name, time.monotonic() - started)
+            logger.info("命令=%s 结果=冷却中 耗时=%.6f秒", name, time.monotonic() - started)
             return False
         cooldown = self.policies.get(name, self.default_policy).cooldown
         if cooldown > 0:
@@ -248,14 +248,14 @@ class Runtime:
         try:
             await command.handler(context, tuple(parts[1:]))
         except asyncio.CancelledError:
-            logger.info("command=%s outcome=cancelled elapsed=%.6f", name, time.monotonic() - started)
+            logger.info("命令=%s 结果=已取消 耗时=%.6f秒", name, time.monotonic() - started)
             raise
         except Exception as error:
             self.command_failures += 1
-            logger.error("command=%s outcome=failed elapsed=%.6f exception=%s", name, time.monotonic() - started, type(error).__name__)
+            logger.error("命令=%s 结果=失败 耗时=%.6f秒 异常=%s", name, time.monotonic() - started, type(error).__name__)
             raise
         self.command_successes += 1
-        logger.info("command=%s outcome=success elapsed=%.6f", name, time.monotonic() - started)
+        logger.info("命令=%s 结果=成功 耗时=%.6f秒", name, time.monotonic() - started)
         return True
 
     async def close(self) -> None:
@@ -282,13 +282,13 @@ def _plugin_label(name: str) -> str:
 
 async def builtins(plugin: Plugin) -> None:
     async def ping(context: Context, args: tuple[str, ...]) -> None:
-        await context.reply("Usage: /ping" if args else "pong")
+        await context.reply("用法：/ping" if args else "🏓 在呢！")
 
     async def help_command(context: Context, args: tuple[str, ...]) -> None:
         if args:
-            await context.reply("Usage: /help")
+            await context.reply("用法：/help")
             return
-        output = "\n".join(
+        output = "📖 可用命令\n" + "\n".join(
             f"/{name} — {command.description}"
             for name, command in sorted(plugin.runtime._commands.items())
             if plugin.runtime._allowed(name, command, context.message)
@@ -297,21 +297,22 @@ async def builtins(plugin: Plugin) -> None:
 
     async def status(context: Context, args: tuple[str, ...]) -> None:
         if args:
-            await context.reply("Usage: /status")
+            await context.reply("用法：/status")
             return
         runtime = plugin.runtime
         state = runtime.connection
         output = "\n".join((
-            f"Uptime: {max(0, int(time.monotonic() - runtime._started))}s",
-            f"Transport open: {str(state['transport_open']).lower()}",
-            f"Auth confirmed: {str(state['auth_confirmed']).lower()}",
-            f"Subscription sent: {str(state['subscription_sent']).lower()}",
-            f"Commands succeeded: {runtime.command_successes}",
-            f"Commands failed: {runtime.command_failures}",
-            "Plugins: " + (", ".join(_plugin_label(loaded.name) for loaded in runtime._plugins) or "none"),
+            "📊 机器人状态",
+            f"运行时长：{max(0, int(time.monotonic() - runtime._started))} 秒",
+            f"连接通道：{'已连接' if state['transport_open'] else '未连接'}",
+            f"鉴权确认：{'已确认' if state['auth_confirmed'] else '未确认'}",
+            f"域订阅：{'已发送' if state['subscription_sent'] else '未发送'}",
+            f"命令成功：{runtime.command_successes}",
+            f"命令失败：{runtime.command_failures}",
+            "已加载插件：" + ("、".join(_plugin_label(loaded.name) for loaded in runtime._plugins) or "无"),
         ))
         await context.reply(output if len(output) <= 2000 else output[:1997] + "...")
 
-    plugin.command("ping", ping, description="Check bot response")
-    plugin.command("help", help_command, description="List registered commands")
-    plugin.command("status", status, description="Show local runtime and connection status")
+    plugin.command("ping", ping, description="看看机器人在不在")
+    plugin.command("help", help_command, description="查看你能使用的命令")
+    plugin.command("status", status, description="查看运行情况与连接状态")

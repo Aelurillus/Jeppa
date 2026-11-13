@@ -10,11 +10,11 @@ from ..runtime import Context, Plugin
 _RANDOM = random.SystemRandom()
 _MAX_REPLY = 2000
 _MAX_ANSWER = 1800
-_ROLL_USAGE = "Usage: /roll [NdM] (1–100 dice, 2–1000000 sides; default 1d6)."
+_ROLL_USAGE = "用法：/roll [骰子数d面数]，例如 /roll 2d6。支持 1–100 颗骰子，每颗 2–1000000 面，默认 1d6。"
 _FAQ_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _FAQ_SET_USAGE = (
-    "Usage: /faq-set <key> <answer...> (key: 1–64 letters, digits, _ or -; "
-    "answer: at most 1800 characters). Requires an allowlisted operator."
+    "用法：/faq-set <条目名> <内容>。条目名为 1–64 个英文字母、数字、下划线或连字符，"
+    "以字母或数字开头；内容最多 1800 字符。仅限白名单操作员。"
 )
 
 
@@ -30,33 +30,33 @@ async def setup(plugin: Plugin) -> None:
             await context.reply(_ROLL_USAGE)
             return
         values = [_RANDOM.randint(1, sides) for _ in range(count)]
-        await context.reply(f"{count}d{sides}: {', '.join(map(str, values))} (total {sum(values)})")
+        await context.reply(f"🎲 {count}d{sides}：{', '.join(map(str, values))}（合计 {sum(values)}）")
 
     async def choose(context: Context, args: tuple[str, ...]) -> None:
         choices = [choice.strip() for choice in " ".join(args).split("|")]
         if len(choices) < 2 or any(not choice or len(choice) > _MAX_REPLY for choice in choices):
-            await context.reply("Usage: /choose option1 | option2 | ... (at least two nonempty choices, each at most 2000 characters).")
+            await context.reply("用法：/choose 选项一 | 选项二 | ……，至少提供两个非空选项，每项最多 2000 字符。")
             return
         await context.reply(_RANDOM.choice(choices))
 
     async def faq(context: Context, args: tuple[str, ...]) -> None:
         if context.message.is_private:
-            await context.reply("FAQ is area-local. Use /faq in a public area channel.")
+            await context.reply("常见问题按域保存，请在域内的文字频道使用 /faq，私信中不可查询。")
             return
         if len(args) > 1 or (args and _FAQ_KEY.fullmatch(args[0]) is None):
-            await context.reply("Usage: /faq [key] (key: 1–64 letters, digits, _ or -).")
+            await context.reply("用法：/faq [条目名]。条目名为 1–64 个英文字母、数字、下划线或连字符，以字母或数字开头。")
             return
         store = plugin.store(context, scope="area")
         if args:
             key = args[0].lower()
             answer = store.get(key)
-            text = f"{key}: {answer}" if answer is not None else "No FAQ entry for that key. Use /faq to list available keys."
+            text = f"{key}: {answer}" if answer is not None else "没有找到这个条目，可以发送 /faq 查看已有条目。"
         else:
             keys = sorted(store.items())
             text = (
-                "FAQ keys (use /faq <key>): " + ", ".join(keys)
+                "📚 常见问题（发送 /faq <条目名> 查询）：" + "、".join(keys)
                 if keys else
-                "No FAQ entries in this area. An allowlisted operator can add one with /faq-set <key> <answer...>."
+                "本域还没有常见问题。白名单操作员可以使用 /faq-set <条目名> <内容> 添加。"
             )
         if len(text) > _MAX_REPLY:
             text = text[:_MAX_REPLY - 1] + "…"
@@ -64,7 +64,7 @@ async def setup(plugin: Plugin) -> None:
 
     async def faq_set(context: Context, args: tuple[str, ...]) -> None:
         if context.message.is_private:
-            await context.reply("FAQ can only be changed in a public area channel.")
+            await context.reply("常见问题只能在域内的文字频道修改，私信中不可操作。")
             return
         if len(args) < 2 or _FAQ_KEY.fullmatch(args[0]) is None:
             await context.reply(_FAQ_SET_USAGE)
@@ -75,20 +75,20 @@ async def setup(plugin: Plugin) -> None:
             return
         key = args[0].lower()
         plugin.store(context, scope="area").set(key, answer)
-        await context.reply(f"FAQ saved: {key}.")
+        await context.reply(f"✅ 已保存条目：{key}")
 
     async def faq_delete(context: Context, args: tuple[str, ...]) -> None:
         if context.message.is_private:
-            await context.reply("FAQ can only be changed in a public area channel.")
+            await context.reply("常见问题只能在域内的文字频道修改，私信中不可操作。")
             return
         if len(args) != 1 or _FAQ_KEY.fullmatch(args[0]) is None:
-            await context.reply("Usage: /faq-delete <key> (key: 1–64 letters, digits, _ or -).")
+            await context.reply("用法：/faq-delete <条目名>。条目名为 1–64 个英文字母、数字、下划线或连字符，以字母或数字开头。")
             return
         removed = plugin.store(context, scope="area").delete(args[0].lower())
-        await context.reply("FAQ entry deleted." if removed else "No FAQ entry for that key.")
+        await context.reply("✅ 条目已删除。" if removed else "没有找到这个条目。")
 
-    plugin.command("roll", roll, description="Roll dice: /roll [NdM]")
-    plugin.command("choose", choose, description="Choose between options separated by |")
-    plugin.command("faq", faq, description="List or query this area's FAQ")
-    plugin.command("faq-set", faq_set, description="Set an area FAQ entry (allowlisted operators)", restricted=True)
-    plugin.command("faq-delete", faq_delete, description="Delete an area FAQ entry (allowlisted operators)", restricted=True)
+    plugin.command("roll", roll, description="掷骰子，例如 /roll 2d6")
+    plugin.command("choose", choose, description="帮你选一个，用 | 分隔选项")
+    plugin.command("faq", faq, description="查看本域的常见问题")
+    plugin.command("faq-set", faq_set, description="添加或修改常见问题（仅限操作员）", restricted=True)
+    plugin.command("faq-delete", faq_delete, description="删除常见问题（仅限操作员）", restricted=True)

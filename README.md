@@ -1,6 +1,6 @@
 # Jeppa
 
-Jeppa 是面向 Oopz 的**非官方文字机器人 / 命令插件运行时**，定位类似 Koishi / Discord Bot 框架的文字命令部分，不隶属于 Oopz，也未获其背书。0.2.0 提供命令权限与冷却、实用插件、状态诊断、隔离的 SQLite 数据，以及独立进程启停和轮转日志。没有音频、AI、管理 WebUI、OneBot 或多平台兼容层。
+Jeppa 是面向 Oopz 的**非官方文字机器人 / 命令插件运行时**，定位类似 Koishi / Discord Bot 框架的文字命令部分，不隶属于 Oopz，也未获其背书。0.2.1 提供中文命令交互、权限与冷却、实用插件、状态诊断、隔离的 SQLite 数据，以及独立进程启停和轮转日志；帮助、状态和部分回复适量使用 emoji。没有音频、AI、管理 WebUI、OneBot 或多平台兼容层。
 
 截至当前公开资料调研，尚未确认可使用的 Oopz 公共 Bot API。Jeppa 使用 [Oopzbot-SDK](https://github.com/tangqingfeng7/Oopzbot-SDK) 的 [oopz-sdk 0.16.0](https://pypi.org/project/oopz-sdk/0.16.0/)（MIT），不是官方接口；普通账号能够登录不表示存在获授权的 Bot 接口。
 
@@ -100,7 +100,7 @@ FAQ key 为 1–64 个 ASCII 字母、数字、下划线或连字符，以字母
 
 `start` 创建脱离终端和 omp 的独立进程，保留启动工作目录；不要随后移动配置。`run` 是前台模式，同样接受 `stop`。二者使用数据库旁的 OS 文件锁防止同一数据库的重复实例；本机随机令牌控制通道仅监听回环地址，停止会等待 SDK、插件与数据库清理，不向记录的 PID 发送 kill。不同数据库可以启动不同实例，操作员仍须避免为同一账号重复连接。
 
-`status` 只检查本地实例状态，不表示 Oopz 已登录；聊天 `/status` 显示运行时长、插件、命令成功／失败计数和三个独立连接状态。没有显式鉴权帧时 `Auth confirmed: false` 是真实证据范围，不会用收包伪造成功。计数不持久化，状态请求本身在回复后才计入成功。
+`status` 只检查本地实例状态，不表示 Oopz 已登录；聊天 `/status` 显示运行时长、插件、命令成功／失败计数和三个独立连接状态。没有显式鉴权帧时显示“鉴权确认：未确认”，不会用收包伪造成功。计数不持久化，状态请求本身在回复后才计入成功。
 
 `[logging]` 默认 `path="logs/jeppa.log"`、`max_bytes=1048576`、`backups=3`，`logs` 显示最近最多 50 条固定脱敏诊断。记录命令名称、结果、耗时和异常类型，不记录参数、用户 ID、聊天正文或 traceback。`stop/status/logs` 不需要账号凭据，但必须指向相同数据库与日志配置；配置仍需语法有效。
 
@@ -110,11 +110,11 @@ FAQ key 为 1–64 个 ASCII 字母、数字、下划线或连字符，以字母
 
 Jeppa 不把上游 `on_ready` 当成上线完成：
 
-1. `transport-open; auth-sent`：WebSocket 已连接并发送鉴权，**不是 ready**。
-2. `auth-confirmed`：实际收到 `event=21` 且 `checkRes=true`，才记录鉴权确认。
-3. `subscription-sent`：在 transport-open / auth-sent 后按 SDK 既有时序发送配置中的域订阅，不等待可能缺席的 `event=21`。仅表示发送成功，不等于鉴权确认、订阅确认或端到端在线。
+1. “连接通道已打开；已发送鉴权”：WebSocket 已连接并发送鉴权，**不表示已经就绪**。
+2. “鉴权已确认”：实际收到 `event=21` 且 `checkRes=true`，才记录鉴权确认。
+3. “已发送域订阅”：在连接打开并发送鉴权后按 SDK 既有时序发送配置中的域订阅，不等待可能缺席的 `event=21`。仅表示发送成功，不等于鉴权确认、订阅确认或端到端在线。
 
-如果服务端不发显式确认，就保持未确认，不用任意业务帧伪造确认。重连清空以上状态，每次 transport-open / auth-sent 后重新发送显式配置的域订阅；之后收到严格布尔值 `checkRes=true` 只更新鉴权确认，不重复订阅。SDK 负责心跳和连接重试；没有断线事件重放、恰好一次处理或持久消息队列保证。私信无需域订阅。Jeppa 和 SDK 都默认不处理自身消息，消息编辑也不会重复触发命令。插件 / 回复异常为可见运行失败，撤销资源并停机，不无限重试该命令。
+如果服务端不发显式确认，就保持未确认，不用任意业务帧伪造确认。重连清空以上状态，每次连接打开并发送鉴权后重新发送显式配置的域订阅；之后收到严格布尔值 `checkRes=true` 只更新鉴权确认，不重复订阅。SDK 负责心跳和连接重试；没有断线事件重放、恰好一次处理或持久消息队列保证。私信无需域订阅。Jeppa 和 SDK 都默认不处理自身消息，消息编辑也不会重复触发命令。插件／回复异常为可见运行失败，撤销资源并停机，不无限重试该命令。
 
 ## 插件 API
 
@@ -127,14 +127,14 @@ from jeppa import Context, Plugin
 async def setup(plugin: Plugin) -> None:
     async def greet(context: Context, args: tuple[str, ...]) -> None:
         if len(args) != 1:
-            await context.reply("Usage: /greet <name>")
+            await context.reply("用法：/greet <名字>")
             return
-        await context.reply(f"Hello, {args[0]}!")
+        await context.reply(f"👋 你好，{args[0]}！")
 
-    plugin.command("greet", greet, description="Greet one name")
+    plugin.command("greet", greet, description="打个招呼")
 ```
 
-- 命令名为 `[a-z][a-z0-9_-]*`；完整首个空白分隔词匹配，`/pingpong` 不触发 `/ping`。命令区分大小写，参数按空白拆分，不做 shell 引号 / 转义解析；未知命令不回复。`/help` 列出当前注册命令；`/ping` 回复 `pong`。
+- 命令名为 `[a-z][a-z0-9_-]*`；完整首个空白分隔词匹配，`/pingpong` 不触发 `/ping`。命令区分大小写，参数按空白拆分，不做 shell 引号／转义解析；未知命令不回复。`/help` 用中文列出有权使用的命令；`/ping` 回复“🏓 在呢！”。用户输入的选项、名称和 FAQ 正文不会被自动翻译。
 - `context.message` 保留 `text`、`area`、`channel`、`person`、`message_id`、`is_private`。`session_id` 为频道的 `("channel", area, channel)` 或私信的 `("private", channel, person)`，不把不同域或私信对方折叠成一个 ID；不会自动持久化用户数据。
 - `await context.reply(text)` 使用 SDK 真实 `EventContext.reply`，频道携带 area/channel/reference message，私信携带对方/channel/reference message，不冒充频道发送。
 - 获取资源后立即 `plugin.defer(close_callback)`，支持同步或异步回调，卸载时逆序清理。`plugin.task(coroutine)` 管理后台任务，异常触发停机，卸载取消并等待任务。

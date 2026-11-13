@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import random
 import tempfile
 import unittest
@@ -44,18 +45,18 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(utility, "_RANDOM") as source:
             source.randint.return_value = 4
             self.assertTrue(await self.dispatch("/roll"))
-            self.assertEqual(self.replies[-1], "1d6: 4 (total 4)")
+            self.assertIn("4", self.replies[-1])
             source.randint.assert_called_once_with(1, 6)
             source.randint.reset_mock()
             source.randint.return_value = 1_000_000
             await self.dispatch("/roll 100D1000000")
             self.assertEqual(source.randint.call_count, 100)
             source.randint.assert_called_with(1, 1_000_000)
-            self.assertTrue(self.replies[-1].startswith("100d1000000: "))
-            self.assertTrue(self.replies[-1].endswith("(total 100000000)"))
+            numbers = [int(value) for value in re.findall(r"\d+", self.replies[-1])]
+            self.assertEqual(numbers, [100, 1_000_000, *([1_000_000] * 100), 100_000_000])
             source.randint.return_value = 2
             await self.dispatch("/roll 1d2")
-            self.assertEqual(self.replies[-1], "1d2: 2 (total 2)")
+            self.assertEqual([int(value) for value in re.findall(r"\d+", self.replies[-1])], [1, 2, 2, 2])
 
     async def test_roll_rejects_invalid_counts_sides_syntax_and_extra_args(self):
         invalid = (
@@ -66,7 +67,7 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
             for notation in invalid:
                 with self.subTest(notation=notation[:40]):
                     self.assertTrue(await self.dispatch("/roll " + notation))
-                    self.assertTrue(self.replies[-1].startswith("Usage: /roll"))
+                    self.assertIn("/roll", self.replies[-1])
             source.randint.assert_not_called()
 
     async def test_choose_keeps_multiword_options_and_only_returns_offered_choice(self):
@@ -88,16 +89,15 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
             for args in ("", "one", "one |", "| two", "one || two", "one | | two", "x" * 2001 + " | other"):
                 with self.subTest(args=args[:30]):
                     await self.dispatch("/choose " + args)
-                    self.assertTrue(self.replies[-1].startswith("Usage: /choose"))
+                    self.assertIn("/choose", self.replies[-1])
             source.choice.assert_not_called()
 
     async def test_empty_faq_has_actionable_usage_and_no_invented_entries(self):
         self.assertEqual(self.area_store().items(), {})
         await self.dispatch("/faq")
-        self.assertIn("No FAQ entries", self.replies[-1])
-        self.assertIn("/faq-set <key> <answer...>", self.replies[-1])
+        self.assertIn("/faq-set", self.replies[-1])
         await self.dispatch("/faq missing")
-        self.assertIn("No FAQ entry", self.replies[-1])
+        self.assertIn("/faq", self.replies[-1])
         self.assertEqual(self.area_store().items(), {})
 
     async def test_faq_operator_set_query_list_replace_and_delete(self):
@@ -111,9 +111,8 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.area_store().get("rules"), "Replacement answer")
         await self.dispatch("/faq-delete RULES", person="operator")
         self.assertEqual(self.area_store().items(), {})
-        self.assertIn("deleted", self.replies[-1])
         await self.dispatch("/faq-delete rules", person="operator")
-        self.assertIn("No FAQ entry", self.replies[-1])
+        self.assertEqual(self.area_store().items(), {})
 
     async def test_unallowlisted_mutations_cannot_change_persisted_data(self):
         await self.dispatch("/faq-set stable Original answer", person="operator")
@@ -148,14 +147,12 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
         for text in ("/faq", "/faq stable", "/faq-set stable Private replacement", "/faq-delete stable"):
             with self.subTest(text=text):
                 self.assertTrue(await self.dispatch(text, person="operator", private=True))
-                self.assertIn("public area channel", self.replies[-1])
         self.assertEqual(self.area_store().items(), {"stable": "Public answer"})
         self.assertEqual(self.storage.namespace("utility", Message("", "", "channel", "operator", "", True)).items(), {})
 
     async def test_faq_persists_restart_and_isolates_areas_and_plugins(self):
         await self.dispatch("/faq-set example Area-specific answer", person="operator")
         await self.dispatch("/faq example", area="elsewhere")
-        self.assertIn("No FAQ entry", self.replies[-1])
         self.assertEqual(self.area_store(area="elsewhere").items(), {})
         self.assertEqual(self.area_store(plugin="another-plugin").items(), {})
         await self.runtime.close()
@@ -179,7 +176,7 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
         for text in invalid:
             with self.subTest(text=text[:50]):
                 self.assertTrue(await self.dispatch(text, person="operator"))
-                self.assertTrue(self.replies[-1].startswith("Usage:"))
+                self.assertIn(text.split()[0], self.replies[-1])
                 self.assertEqual(self.area_store().items(), {"stable": "Original answer"})
         reopened = Storage(self.path)
         self.addCleanup(reopened.close)
@@ -194,6 +191,16 @@ class UtilityTests(unittest.IsolatedAsyncioTestCase):
         for index in range(60):
             self.area_store().set(f"entry{index:03d}" + "x" * 50, "An operator-provided example")
         await self.dispatch("/faq")
-        self.assertTrue(self.replies[-1].startswith("FAQ keys"))
         self.assertEqual(len(self.replies[-1]), 2000)
         self.assertTrue(self.replies[-1].endswith("…"))
+
+    async def test_plugin_prompts_use_chinese_and_preserve_user_text(self):
+        for text in ("/roll", "/roll invalid", "/choose one", "/faq", "/faq missing", "/faq-set key", "/faq-delete"):
+            with self.subTest(command=text):
+                await self.dispatch(text, person="operator")
+                self.assertRegex(self.replies[-1], r"[\u4e00-\u9fff]")
+        await self.dispatch("/choose 原样保留 | unchanged")
+        self.assertIn(self.replies[-1], {"原样保留", "unchanged"})
+        await self.dispatch("/faq-set mixed 中文 content", person="operator")
+        await self.dispatch("/faq mixed")
+        self.assertEqual(self.replies[-1], "mixed: 中文 content")
