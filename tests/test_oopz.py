@@ -34,20 +34,43 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.runtime.close()
 
-    async def test_auth_confirmation_and_subscription_sent_not_transport_ready(self):
+    async def test_open_sends_configured_subscription_without_auth_confirmation(self):
         await self.adapter.opened(None)
         self.assertTrue(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
-        self.assertFalse(self.adapter.subscription_sent)
-        await self.adapter.emit_event(event(21, {"checkRes": "true"}))
-        self.bot.ws.send_subscribe_area_events.assert_not_awaited()
-        await self.adapter.emit_event(event(21, {"checkRes": True}))
-        self.assertTrue(self.adapter.auth_confirmed)
         self.assertTrue(self.adapter.subscription_sent)
         self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
+
+    async def test_explicit_auth_confirmation_does_not_repeat_subscription(self):
+        await self.adapter.opened(None)
+        await self.adapter.emit_event(event(21, {"checkRes": "true"}))
+        self.assertFalse(self.adapter.auth_confirmed)
+        await self.adapter.emit_event(event(21, {"checkRes": True}))
+        await self.adapter.emit_event(event(21, {"checkRes": True}))
+        self.assertTrue(self.adapter.auth_confirmed)
+        self.bot.ws.send_subscribe_area_events.assert_awaited_once_with(["a"])
+
+    async def test_close_then_reopen_resets_confirmation_and_resubscribes(self):
+        await self.adapter.opened(None)
+        await self.adapter.emit_event(event(21, {"checkRes": True}))
         await self.adapter.closed(None, None)
+        self.assertFalse(self.adapter.transport_open)
         self.assertFalse(self.adapter.auth_confirmed)
         self.assertFalse(self.adapter.subscription_sent)
+        await self.adapter.opened(None)
+        self.assertTrue(self.adapter.transport_open)
+        self.assertFalse(self.adapter.auth_confirmed)
+        self.assertTrue(self.adapter.subscription_sent)
+        self.assertEqual(self.bot.ws.send_subscribe_area_events.await_count, 2)
+        self.bot.ws.send_subscribe_area_events.assert_awaited_with(["a"])
+
+    async def test_empty_areas_never_sends_subscription(self):
+        self.adapter = OopzAdapter(self.bot, self.runtime, ())
+        await self.adapter.opened(None)
+        await self.adapter.emit_event(event(21, {"checkRes": True}))
+        self.assertTrue(self.adapter.auth_confirmed)
+        self.assertFalse(self.adapter.subscription_sent)
+        self.bot.ws.send_subscribe_area_events.assert_not_awaited()
 
     async def test_dispatch_failure_is_fatal_not_retried_or_swallowed(self):
         self.bot.messages.send_message.side_effect = RuntimeError("reply failed")

@@ -25,6 +25,12 @@ class OopzAdapter:
         self.auth_confirmed = False
         self.subscription_sent = False
         logger.info("transport-open; auth-sent; awaiting event=21 checkRes=true (not ready)")
+        if self.areas:
+            await self.bot.ws.send_subscribe_area_events(list(self.areas))
+            self.subscription_sent = True
+            logger.info("subscription-sent for %d configured area(s); auth/subscription confirmation unavailable", len(self.areas))
+        else:
+            logger.info("no areas configured; no area subscription sent")
 
     async def closed(self, _context, _event) -> None:
         self.transport_open = False
@@ -47,12 +53,6 @@ class OopzAdapter:
             if isinstance(body, dict) and body.get("checkRes") is True and not self.auth_confirmed:
                 self.auth_confirmed = True
                 logger.info("auth-confirmed (event=21 checkRes=true)")
-                if self.areas:
-                    await self.bot.ws.send_subscribe_area_events(list(self.areas))
-                    self.subscription_sent = True
-                    logger.info("subscription-sent for %d configured area(s); server confirmation unavailable", len(self.areas))
-                else:
-                    logger.info("no areas configured; private-message reception only, no area subscription sent")
             return
         if not isinstance(event, MessageEvent) or event.event_name not in {"message", "message.private"}:
             return
