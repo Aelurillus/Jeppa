@@ -1,11 +1,10 @@
 """oopz-sdk 0.16.0 boundary. No signing material or wire reimplementation."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 
-from .config import Config
+from .config import AccountConfig
 from .runtime import Context, Message, Runtime
 
 logger = logging.getLogger(__name__)
@@ -16,13 +15,15 @@ class OopzAdapter:
         self.bot = bot
         self.runtime = runtime
         self.areas = areas
+        self.bot_id = bot.config.person_uid
         self.transport_open = False
         self.auth_confirmed = False
         self.subscription_sent = False
         self._publish_connection()
 
     def _publish_connection(self) -> None:
-        self.runtime.connection.update(
+        self.runtime.set_connection(
+            "oopz", self.bot_id,
             transport_open=self.transport_open,
             auth_confirmed=self.auth_confirmed,
             subscription_sent=self.subscription_sent,
@@ -79,6 +80,8 @@ class OopzAdapter:
             person=incoming.sender_id,
             message_id=incoming.message_id,
             is_private=event.is_private,
+            platform="oopz",
+            bot_id=self.bot_id,
         )
         sdk_context = EventContext(bot=self.bot, config=self.bot.config, event=event)
         try:
@@ -88,31 +91,22 @@ class OopzAdapter:
             raise
 
 
-async def run(config: Config, runtime: Runtime) -> None:
+async def run(config: AccountConfig, runtime: Runtime, identities, *, migrate_legacy: bool = False) -> None:
     from oopz_sdk import OopzBot, OopzConfig
 
     sdk_config = OopzConfig(ignore_self_messages=True, auto_subscribe_joined_areas=False)
     await sdk_config.login_async(**config.auth)
-    runtime.self_id = sdk_config.person_uid
-    bot = OopzBot(sdk_config)
-    adapter = OopzAdapter(bot, runtime, config.areas)
-    bot.add_adapter(adapter)
-    bot.on_ready(adapter.opened)  # SDK "ready" means transport open, NOT authenticated.
-    bot.on_close(adapter.closed)
-    bot.on_error(adapter.errored)
-    connection = asyncio.create_task(bot.run())
-    failed = asyncio.create_task(runtime.failure.wait())
-    try:
-        done, _ = await asyncio.wait({connection, failed}, return_when=asyncio.FIRST_COMPLETED)
-        if failed in done:
-            assert runtime.error is not None
-            raise runtime.error
-        await connection
-    finally:
-        failed.cancel()
-        connection.cancel()
+    with identities.claim("oopz", sdk_config.person_uid):
+        if migrate_legacy and runtime.storage is not None:
+            runtime.storage.migrate_legacy_oopz(sdk_config.person_uid)
+        bot = OopzBot(sdk_config)
+        adapter = OopzAdapter(bot, runtime, config.areas)
         try:
-            await asyncio.gather(connection, failed, return_exceptions=True)
+            bot.add_adapter(adapter)
+            bot.on_ready(adapter.opened)  # Transport open, NOT authenticated.
+            bot.on_close(adapter.closed)
+            bot.on_error(adapter.errored)
+            await bot.run()
         finally:
             try:
                 await bot.stop()

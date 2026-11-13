@@ -1,38 +1,54 @@
-# Copy to jeppa.local.toml. Never commit real account material.
+# 复制到 jeppa.local.toml；不得提交真实账号资料。
 [oopz]
 method = "credentials"
 device_id = ""
 person_uid = ""
 jwt_token = ""
-# Optional private_key is a PEM string. If absent, SDK owns signing-key resolution.
-# Or use method = "password_api", phone = "...", password = "...".
-# This does not automate CAPTCHA or fall back to a browser.
+# 未填写 private_key 时由固定版本 SDK 处理签名密钥。
+# 另一种方式：method = "password_api"，并填写 phone、password。
+# 不自动处理验证码，也不回退到浏览器登录。
 
 [bot]
-# Explicit area IDs only. Empty means no area subscriptions (private messages only).
+# 填网络请求中的内部域 ID，而非界面显示的短编号；[] 仅接收私信。
 areas = []
-# Entries are trusted executable Python; paths are relative to launch cwd.
-plugins = ["jeppa.plugins.utility:setup", "examples/greet.py:setup"]
+# 省略 plugins 时加载 default；显式 [] 则完全不加载命令插件。
+plugins = ["jeppa.plugins.default:setup"]
+# 添加问候示例：在上述数组内追加 "examples/greet.py:setup"。
+
+[plugins.default]
+enabled = true
+# 可选 areas、channels：省略不限制，[] 全部拒绝；设置 areas 后拒绝私信。
+# areas = ["内部域ID"]
+# channels = ["内部频道ID"]
+config = {} # default 当前不接受任何业务配置项。
 
 [permissions]
-# No users/channels key means unrestricted; [] explicitly denies everyone.
-# Cooldown is per command + session + user, in seconds; 0 disables it.
-cooldown = 2
-# channels = ["authorized-internal-channel-id"]
+# 省略 users/channels 不限制，[] 全部拒绝；使用真实内部 ID。
+cooldown = 2 # 每条命令 + 平台 + 账号 + 会话 + 用户独立冷却；0 关闭。
 
-# FAQ writes stay disabled until a nonempty user allowlist is configured.
+# FAQ 写入必须显式配置非空用户白名单。
 [permissions.commands.faq-set]
 users = []
-
 [permissions.commands.faq-delete]
 users = []
 
 [storage]
-# Relative paths use the launch directory, as do plugin paths.
-path = "data/jeppa.sqlite3"
+path = "data/jeppa.sqlite3" # 相对启动目录；插件和日志路径相同。
+# 多账号迁移旧库时必须明确归属；新库无需此项。
+# legacy_account = "first"
 
 [logging]
-# Only fixed Jeppa status and command outcomes, never raw chat or SDK payloads.
 path = "logs/jeppa.log"
 max_bytes = 1048576
 backups = 3
+
+# 多账号：删除上面的整个 [oopz] 和 bot.areas；不得同时设置 OOPZ_ 环境变量。
+# 将下列模板取消注释并填写；每个账号分别设置 id、areas 和 accounts.oopz。
+# [[accounts]]
+# id = "first"
+# platform = "oopz"
+# areas = ["内部域ID"]
+# [accounts.oopz]
+# device_id = ""
+# person_uid = ""
+# jwt_token = ""
