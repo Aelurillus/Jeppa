@@ -4,7 +4,7 @@ recursive-include tests *.py
 recursive-include examples *.py
 recursive-include docs *.md
 recursive-include scripts *.py *.json
-recursive-include site *.html *.css *.js *.svg
+recursive-include site *.html *.css *.js *.png
 recursive-exclude * __pycache__ *.py[cod]
 prune data
 prune logs
