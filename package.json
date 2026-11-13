@@ -1,0 +1,24 @@
+{
+  "name": "jeppa-repository-checks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Development tools for Jeppa repository documents and GitHub configuration; not a bot runtime.",
+  "license": "MIT",
+  "scripts": {
+    "check": "npm run check:markdown && npm run check:format && npm run check:workflows && npm run check:secrets",
+    "check:markdown": "markdownlint-cli2",
+    "check:format": "prettier --check \"**/*.{md,yml,yaml,json,jsonc}\"",
+    "check:workflows": "action-validator .github/workflows/ci.yml",
+    "check:secrets": "secretlint --no-gitignore \"**/*\"",
+    "format": "prettier --write \"**/*.{md,yml,yaml,json,jsonc}\""
+  },
+  "devDependencies": {
+    "@action-validator/cli": "0.6.0",
+    "@action-validator/core": "0.6.0",
+    "@secretlint/secretlint-rule-pattern": "13.1.0",
+    "@secretlint/secretlint-rule-preset-recommend": "13.1.0",
+    "markdownlint-cli2": "0.24.1",
+    "prettier": "3.10.1",
+    "secretlint": "13.1.0"
+  }
+}

@@ -1,0 +1,39 @@
+# Local maintenance dependencies and generated logs
+node_modules/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Account/session material: never commit real values
+.env
+.env.*
+.npmrc
+secrets/
+credentials/
+accounts/
+sessions/
+*.local.*
+*token*.json
+*token*.yaml
+*token*.yml
+*jwt*.json
+*jwt*.txt
+*credentials*.json
+*credentials*.yaml
+*credentials*.yml
+*account*.json
+*account*.yaml
+*account*.yml
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Sanitized templates remain committable (never put real secrets in them)
+!.env.example
+!.env.sample
+!*.example.*
+!*.sample.*
