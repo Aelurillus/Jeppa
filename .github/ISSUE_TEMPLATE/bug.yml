@@ -1,11 +1,12 @@
 name: 错误报告
-description: 报告当前文档、仓库配置或 CI 的可复现错误
+description: 报告 Python 机器人运行时、插件、SDK 适配、文档或 CI 的可复现错误
 title: "[Bug] "
 body:
   - type: markdown
     attributes:
       value: |
-        当前仓库没有机器人实现。请仅报告实际存在内容的问题。
+        本项目提供 Python Oopz 文字机器人运行时与插件 CLI，并非 Oopz 官方项目。
+        第三方 SDK 的开源许可不等于 Oopz 接入授权；SDK 与平台上线行为尚未实测，请区分离线复现与实际接入故障。
         严禁公开 JWT、token、私钥、Cookie、账号配置和私人日志；安全问题遵循 SECURITY.md。
   - type: checkboxes
     id: safety
@@ -18,7 +19,7 @@ body:
     id: environment
     attributes:
       label: 环境与版本
-      description: 操作系统、Node/npm 版本、相关提交或 Actions run 链接（不要包含凭证）
+      description: 操作系统、Python 与 Jeppa/oopz-sdk 版本、相关提交；文档/CI 问题可附 Node/npm 版本或 Actions run 链接（不要包含凭证）
     validations:
       required: true
   - type: textarea

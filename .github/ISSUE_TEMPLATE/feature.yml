@@ -1,5 +1,5 @@
 name: 功能建议
-description: 提议文档、工程流程或未来功能，不代表已经获得支持
+description: 提议 Python 运行时、插件、SDK 适配、文档或工程流程改进，不代表已经获得支持
 title: "[Feature] "
 body:
   - type: markdown
@@ -11,7 +11,7 @@ body:
     id: problem
     attributes:
       label: 场景与问题
-      description: 谁遇到了什么问题，现有文档或流程为何不足？
+      description: 谁遇到了什么问题，现有运行时、插件、SDK 适配、文档或流程为何不足？
     validations:
       required: true
   - type: textarea

@@ -1,0 +1,102 @@
+"""oopz-sdk 0.16.0 boundary. No signing material or wire reimplementation."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+
+from .config import Config
+from .runtime import Context, Message, Runtime
+
+logger = logging.getLogger(__name__)
+
+
+class OopzAdapter:
+    def __init__(self, bot, runtime: Runtime, areas: tuple[str, ...]):
+        self.bot = bot
+        self.runtime = runtime
+        self.areas = areas
+        self.transport_open = False
+        self.auth_confirmed = False
+        self.subscription_sent = False
+
+    async def opened(self, _context) -> None:
+        self.transport_open = True
+        self.auth_confirmed = False
+        self.subscription_sent = False
+        logger.info("transport-open; auth-sent; awaiting event=21 checkRes=true (not ready)")
+
+    async def closed(self, _context, _event) -> None:
+        self.transport_open = False
+        self.auth_confirmed = False
+        self.subscription_sent = False
+        logger.warning("transport-closed; auth/subscription state reset; SDK may reconnect")
+
+    async def errored(self, _context, error) -> None:
+        # Exception messages and payloads may include HTTP headers or credentials.
+        logger.error("SDK error (%s); details withheld to protect credentials", type(error).__name__)
+
+    async def emit_event(self, event) -> None:
+        from oopz_sdk.events.context import EventContext
+        from oopz_sdk.models import MessageEvent
+
+        if event.event_type == 21:
+            body = event.raw.get("body", {})
+            if isinstance(body, str):
+                body = json.loads(body)
+            if isinstance(body, dict) and body.get("checkRes") is True and not self.auth_confirmed:
+                self.auth_confirmed = True
+                logger.info("auth-confirmed (event=21 checkRes=true)")
+                if self.areas:
+                    await self.bot.ws.send_subscribe_area_events(list(self.areas))
+                    self.subscription_sent = True
+                    logger.info("subscription-sent for %d configured area(s); server confirmation unavailable", len(self.areas))
+                else:
+                    logger.info("no areas configured; private-message reception only, no area subscription sent")
+            return
+        if not isinstance(event, MessageEvent) or event.event_name not in {"message", "message.private"}:
+            return
+        incoming = event.message
+        normalized = Message(
+            text=incoming.text,
+            area=incoming.area,
+            channel=incoming.channel,
+            person=incoming.sender_id,
+            message_id=incoming.message_id,
+            is_private=event.is_private,
+        )
+        sdk_context = EventContext(bot=self.bot, config=self.bot.config, event=event)
+        try:
+            await self.runtime.dispatch(Context(normalized, sdk_context.reply))
+        except Exception as error:
+            self.runtime.fail(error)
+            raise
+
+
+async def run(config: Config, runtime: Runtime) -> None:
+    from oopz_sdk import OopzBot, OopzConfig
+
+    sdk_config = OopzConfig(ignore_self_messages=True, auto_subscribe_joined_areas=False)
+    await sdk_config.login_async(**config.auth)
+    runtime.self_id = sdk_config.person_uid
+    bot = OopzBot(sdk_config)
+    adapter = OopzAdapter(bot, runtime, config.areas)
+    bot.add_adapter(adapter)
+    bot.on_ready(adapter.opened)  # SDK "ready" means transport open, NOT authenticated.
+    bot.on_close(adapter.closed)
+    bot.on_error(adapter.errored)
+    connection = asyncio.create_task(bot.run())
+    failed = asyncio.create_task(runtime.failure.wait())
+    try:
+        done, _ = await asyncio.wait({connection, failed}, return_when=asyncio.FIRST_COMPLETED)
+        if failed in done:
+            assert runtime.error is not None
+            raise runtime.error
+        await connection
+    finally:
+        failed.cancel()
+        connection.cancel()
+        try:
+            await asyncio.gather(connection, failed, return_exceptions=True)
+        finally:
+            await bot.stop()

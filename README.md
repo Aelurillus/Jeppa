@@ -1,44 +1,120 @@
 # Jeppa
 
-Jeppa 的目标是一个面向 Oopz 的机器人开发框架，定位类似 Koishi / Discord Bot 生态中的框架。本项目是**非官方项目**，不隶属于 Oopz，也未获其背书。当前仓库只包含项目说明、贡献与安全规范，以及用于检查这些文件和 GitHub Actions 配置的 CI；尚未提供机器人运行时、SDK、登录流程、消息收发接口或可部署程序。
+Jeppa 是面向 Oopz 的**非官方文字机器人 / 命令插件运行时**，定位类似 Koishi / Discord Bot 框架的文字命令部分，不隶属于 Oopz，也未获其背书。现已提供可安装的 Python CLI、社区 SDK 适配、频道 / 私信回复、插件生命周期，以及内置 `/ping`、`/help`。没有音频、AI、管理 WebUI、OneBot 或多平台兼容层。
 
-## 当前状态
+截至当前公开资料调研，尚未确认可使用的 Oopz 公共 Bot API。Jeppa 使用 [Oopzbot-SDK](https://github.com/tangqingfeng7/Oopzbot-SDK) 的 [oopz-sdk 0.16.0](https://pypi.org/project/oopz-sdk/0.16.0/)（MIT），不是官方接口；普通账号能够登录不表示存在获授权的 Bot 接口。
 
-- 项目定位：为后续 Oopz 机器人开发整理公开的工程基础。
-- 当前内容：Markdown 文档、仓库协作配置和 GitHub Actions 检查。
-- 当前不支持：任何可运行的机器人、Oopz 客户端、官方 API 兼容层或生产部署。
-- 发布状态：当前没有可发布产物，也没有启用发布或部署流程。
+[Oopz 用户服务协议](https://help.oopz.cn/agreement/service) §3.6 对反向工程、未授权第三方工具接入和登录等行为设有限制（除非法律允许或取得书面许可）。本仓库的 MIT 许可、第三方 SDK 的开源许可，均不代表 Oopz 平台授权。接入前应核对适用条款与账号授权；条款可能变化，本段不代替法律意见。
 
-截至当前公开资料调研，尚未确认可使用的 Oopz 公共 Bot API；普通账号能够登录官方 Web 端，并不表示存在获授权的 Bot 接口。社区 SDK 的登录与收发尚未在本项目中实测。
+## 安装和启动
 
-[Oopz 用户服务协议](https://help.oopz.cn/agreement/service) §3.6 对反向工程、未授权第三方工具接入和登录等行为设有限制（除非法律允许或取得书面许可）。本仓库的 MIT 许可、第三方 SDK 的开源许可，均不代表 Oopz 平台授权。未经确认授权与适用条款，不应把普通账号接入能力视为可公开部署的机器人能力。条款可能变化，实际接入前应重新核对；本段不代替法律意见。
+需要 **Python 3.11+**，推荐 3.13。Node.js 仅用于仓库文档维护，与机器人运行时无关。从仓库根目录安装；当前未发布 PyPI 包，不要假定 `pip install jeppa` 指向本项目。
+
+Windows PowerShell（不需要激活 venv，也不需要修改执行策略）：
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\jeppa.exe --help
+Copy-Item jeppa.example.toml jeppa.local.toml
+# 用编辑器填写 jeppa.local.toml，不要在公开终端记录中粘贴凭据。
+.\.venv\Scripts\jeppa.exe check-config --config jeppa.local.toml
+.\.venv\Scripts\jeppa.exe run --config jeppa.local.toml
+```
+
+Linux / macOS：
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/jeppa --help
+cp jeppa.example.toml jeppa.local.toml
+# 本地编辑配置后执行：
+.venv/bin/jeppa check-config --config jeppa.local.toml
+.venv/bin/jeppa run --config jeppa.local.toml
+```
+
+也可使用 `python -m jeppa`。文本路径无需安装 Chromium；SDK 自身声明的 Playwright、Pillow 等传递依赖仍会安装，Jeppa 不启动浏览器。缺少或损坏配置以退出码 `2` 安全退出并给出配置命令；运行失败退出码 `1`，Ctrl+C 清理后 `130`。CLI 不输出异常正文、凭据或原始事件，错误类别及失败阶段用于定位问题；受信任的第三方插件自行打印的数据不受 CLI 日志过滤保证。
+
+### 配置
+
+见 [jeppa.example.toml](jeppa.example.toml)。配置只读取显式 `--config` 文件与进程环境，不扫描现有 Oopz 会话，不自动加载 `.env`。文件路径和插件相对路径以启动目录为准；把真实配置保存在被忽略的 `*.local.*` 文件，并使用操作系统权限限制访问。
+
+`[oopz]` 支持两种显式方式：
+
+- `method = "credentials"`（默认）：`device_id`、`person_uid`、`jwt_token`；可选 `private_key` PEM 字符串。JWT 过期需要更新配置再启动。签名和可选密钥解析完全交由 SDK，Jeppa 不复制上游内置私钥。
+- `method = "password_api"`：`phone`、`password`，可选 `device_id`。使用上游纯 API 登录和其令牌续期，不回退浏览器、不自动化验证码或规避风控；平台拒绝时应停止并核对账号与授权。
+
+对应环境变量 `OOPZ_DEVICE_ID`、`OOPZ_PERSON_UID`、`OOPZ_JWT_TOKEN`、`OOPZ_PRIVATE_KEY`、`OOPZ_LOGIN_METHOD`、`OOPZ_LOGIN_PHONE`、`OOPZ_LOGIN_PASSWORD` 优先于文件。不要通过命令行参数传密码，不要提交或在 issue 中粘贴以上值。
+
+`[bot].areas` 是显式订阅的域 ID 数组；默认空数组，不自动枚举并订阅账号加入的全部域。频道回复保留域和频道，私信保留对方与私信频道。`[bot].plugins` 是可信 Python 入口数组，例如 `"examples/greet.py:setup"` 或已安装模块的 `"my_plugin:setup"`。这是执行代码的权限，不是插件沙箱。
+
+`check-config` 只验证本地 TOML、必填字段和类型，不登录、不执行插件、不验证 JWT 有效性或平台可用性。`--help` 和配置诊断不导入 SDK。无平台凭据也可以运行帮助、回归测试和离线 SDK 边界验证。
+
+### 连接状态与限制
+
+Jeppa 不把上游 `on_ready` 当成上线完成：
+
+1. `transport-open; auth-sent`：WebSocket 已连接并发送鉴权，**不是 ready**。
+2. `auth-confirmed`：实际收到 `event=21` 且 `checkRes=true`，才记录鉴权确认。
+3. `subscription-sent`：鉴权确认后发送配置中的域订阅，仅表示发送成功。上游没有此路径可靠订阅确认，Jeppa 不宣称订阅 confirmed / 端到端在线。
+
+如果服务端不发显式确认，就保持未确认，不用任意业务帧伪造确认。重连清空以上状态，再次鉴权确认后重新订阅。SDK 负责心跳和连接重试；没有断线事件重放、恰好一次处理或持久消息队列保证。私信无需域订阅。Jeppa 和 SDK 都默认不处理自身消息，消息编辑也不会重复触发命令。插件 / 回复异常为可见运行失败，撤销资源并停机，不无限重试该命令。
+
+## 插件 API
+
+配置 `plugins = ["examples/greet.py:setup"]` 后启动，发送 `/greet Ada`。完整可执行示例见 [examples/greet.py](examples/greet.py)：
+
+```python
+from jeppa import Context, Plugin
+
+
+async def setup(plugin: Plugin) -> None:
+    async def greet(context: Context, args: tuple[str, ...]) -> None:
+        if len(args) != 1:
+            await context.reply("Usage: /greet <name>")
+            return
+        await context.reply(f"Hello, {args[0]}!")
+
+    plugin.command("greet", greet, description="Greet one name")
+```
+
+- 命令名为 `[a-z][a-z0-9_-]*`；完整首个空白分隔词匹配，`/pingpong` 不触发 `/ping`。命令区分大小写，参数按空白拆分，不做 shell 引号 / 转义解析；未知命令不回复。`/help` 列出当前注册命令；`/ping` 回复 `pong`。
+- `context.message` 保留 `text`、`area`、`channel`、`person`、`message_id`、`is_private`。`session_id` 为频道的 `("channel", area, channel)` 或私信的 `("private", channel, person)`，不把不同域或私信对方折叠成一个 ID；不会自动持久化用户数据。
+- `await context.reply(text)` 使用 SDK 真实 `EventContext.reply`，频道携带 area/channel/reference message，私信携带对方/channel/reference message，不冒充频道发送。
+- 获取资源后立即 `plugin.defer(close_callback)`，支持同步或异步回调，卸载时逆序清理。`plugin.task(coroutine)` 管理后台任务，异常触发停机，卸载取消并等待任务。
+- `async def setup(plugin)` 加载失败会撤销已注册命令和资源；重复命令拒绝注册。`await plugin.close()` 卸载插件，正常退出也会关闭所有插件；某项清理失败不跳过其余资源，最后报告聚合错误。可在 Python 中使用 `Runtime.load()` / `Runtime.install()` 显式管理，不提供热重载或自动发现市场。导入文件的顶层副作用无法回滚，资源创建应放在 `setup` 并立即登记清理。
 
 ## 本地验证
 
-Node.js 只用于文档和仓库维护工具，不决定未来机器人的运行时技术栈。建议使用 [.node-version](.node-version) 中的 Node.js 26.13.0；当前工具最低需要 Node.js 22。依赖精确版本和完整性信息记录在 `package-lock.json` 中：
+运行时回归使用标准库，无需额外测试框架：
+
+```sh
+python -m pip install .
+python -m unittest discover -s tests -v
+jeppa --help
+```
+
+永久回归覆盖命令边界、参数、自回复环、会话 ID、启动回滚 / 资源撤销、鉴权状态、编辑事件及失败传播；使用真实 SDK parser，仅在网络发送边界截获调用。本次 Windows Python 3.13.17 已完成普通包安装、13 项回归和 CLI 诊断；一次性离线 smoke 还运行真实 SDK 凭据配置 → Bot 构造 / hooks → stop，并加载实际示例插件，经 dispatch 和真实 `EventContext.reply` 到频道 / 私信发送边界，以及失败插件的退出 / 回滚。**这些检查不等于真实平台收发成功。尚无本任务授权的平台凭据，未实测真实 Oopz 登录、订阅确认或网络收发。** 不要用个人现有会话或未经授权的账号进行验证。
+
+Node.js 维护工具最低需要 22，建议 [.node-version](.node-version) 指定版本：
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
 npm run check
 ```
 
-`npm run check` 依次运行 Markdown lint、Prettier 的 Markdown/YAML/JSON 格式与解析检查、action-validator 的工作流 schema 校验，以及 Secretlint 推荐规则和 JWT 形态检查。扫描包含隐藏配置和被忽略的凭证文件，排除 Git 内部数据和已安装依赖；不扫描 Git 历史，不能保证发现所有秘密，也不验证 Oopz 功能。具体命令、离线缓存前提及维护方式见 [贡献指南](CONTRIBUTING.md#本地检查)。
+它检查 Markdown、格式、工作流 schema 和 Secretlint，而不是平台可用性。扫描排除 `.venv`、依赖和生成缓存，但真实配置仍被凭证规则扫描；不扫描 Git 历史，也不能保证发现所有秘密。详见 [贡献指南](CONTRIBUTING.md#本地检查)。
 
 ## GitHub 自动化
 
-工作流 `CI` 对 push、pull request 和手动触发运行，唯一检查名为 `Repository checks`。它只读仓库、不使用 Oopz 账号或仓库 secrets；第三方 Actions 锁定完整提交 SHA，Dependabot 每周为 Actions 与 npm 维护工具创建更新 PR，仍需人工审查。首次 fork PR 的运行可能需要维护者批准。
+`CI` 对 push、pull request 和手动触发运行；文档检查和 Python 安装 / 回归检查汇总到稳定名称 `Repository checks`。Python 配置覆盖 Ubuntu / Windows 与 3.11 / 3.13，不使用账号或仓库 secrets，不连接 Oopz。第三方 Actions 锁定完整提交 SHA，Dependabot 为 Actions、npm 维护工具和 pip 依赖创建更新 PR，仍需人工审查。
 
-当前只启用 **CI**，没有 **CD**：不发布包、不创建版本 tag/release、不部署机器人。检查通过仅代表当前文件通过规则，不表示接入合法或机器人可用。
+当前没有 **CD**：不发布包、不创建版本 tag/release、不部署机器人。检查通过不表示平台接入获授权或线上可用。主仓库已核实的 [GitHub 设置](https://github.com/Aelurillus/Jeppa) 包含 Issues、Discussions、私下漏洞报告及单维护者可用的 PR / `Repository checks` 保护；不会随 fork 自动复制，实际状态以 GitHub 为准。
 
-主仓库已在 GitHub 托管 Ubuntu runner 上完成[首次 CI 检查](https://github.com/Aelurillus/Jeppa/actions/runs/43362302589)。已开启 [Issues](https://github.com/Aelurillus/Jeppa/issues)、[Discussions](https://github.com/Aelurillus/Jeppa/discussions)、私下漏洞报告、Dependabot alerts/安全更新，以及 secret scanning/push protection。`main` 要求通过绑定 GitHub Actions 的 `Repository checks` 并经 PR 合并，不要求他人批准或 CODEOWNER 审批；管理员可绕过，禁止强推和删除分支。上述为主仓库已核实的设置，不会随 fork 自动复制，也不保证以后保持不变；以 GitHub 实际设置为准。
+## 参与贡献与安全
 
-## 参与贡献
-
-请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。Bug 和功能建议请使用 GitHub 的 issue 表单；提交变更前运行上面的本地检查。请不要在 issue、pull request、日志或示例中提交 JWT、token、私钥、账号配置或其他凭证。
-
-## 安全问题
-
-安全问题请阅读 [SECURITY.md](SECURITY.md) 中的私下报告要求。请勿通过公开 issue 或 pull request 披露凭证或可被利用的细节。
+请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [SECURITY.md](SECURITY.md)。不要在 issue、PR、日志或示例中提交 JWT、密码、私钥、账号配置、会话或原始抓包。漏洞与凭据泄漏请使用私下报告渠道。
 
 ## 许可证
 
