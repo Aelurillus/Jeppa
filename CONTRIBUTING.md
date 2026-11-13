@@ -52,4 +52,6 @@ npm run check
 
 第三方 Actions 使用完整提交 SHA，并在同一行注释已核实版本。更新时核对官方仓库 tag 指向的提交与变更内容。Dependabot 每周检查 Actions 和维护工具的 npm 依赖，更新 PR 仍需审查与 CI；不会自动合并。工具只作为开发依赖保存在锁文件中，仓库设置 `private: true` 防止误发 npm 包。
 
+当前最新 `markdownlint-cli2@0.24.1` 经 `markdownlint@0.42.1` 使用 `micromark-extension-math@3.1.0`，后者将 KaTeX 限于 `^0.16.0`。为修复 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7)，仅对这个父依赖设置 `katex: 0.18.2` 的 npm override，并更新锁文件；不降级检查工具、不忽略告警。已核对 KaTeX 0.17/0.18 的迁移说明：变更涉及内部定义 API 和 CSS 类名，当前工具使用的公开 `renderToString` 接口保留；临时数学 Markdown 的实际 lint 和渲染已通过。上游更新到包含补丁版的原生依赖范围后，应删除这个 override、重新生成锁文件，并复验数学语法检查和 CI。
+
 远端首次 CI 成功后，可将 `Repository checks` 设为默认分支必需检查；单维护者不应强制他人批准，也不要设成维护者无法满足的审批策略。分支保护、安全报告、secret scanning 和 push protection 属于 GitHub 远端设置，不能仅凭这些文件认定已经开启。

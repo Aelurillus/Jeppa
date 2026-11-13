@@ -28,7 +28,9 @@ npm run check
 
 工作流 `CI` 对 push、pull request 和手动触发运行，唯一检查名为 `Repository checks`。它只读仓库、不使用 Oopz 账号或仓库 secrets；第三方 Actions 锁定完整提交 SHA，Dependabot 每周为 Actions 与 npm 维护工具创建更新 PR，仍需人工审查。首次 fork PR 的运行可能需要维护者批准。
 
-当前只启用 **CI**，没有 **CD**：不发布包、不创建版本 tag/release、不部署机器人。检查通过仅代表当前文件通过规则，不表示接入合法或机器人可用。分支保护、安全扫描和私下漏洞报告是否已开启，以 GitHub 实际设置为准，文件本身不会启用这些远端功能。
+当前只启用 **CI**，没有 **CD**：不发布包、不创建版本 tag/release、不部署机器人。检查通过仅代表当前文件通过规则，不表示接入合法或机器人可用。
+
+主仓库已在 GitHub 托管 Ubuntu runner 上完成[首次 CI 检查](https://github.com/Aelurillus/Jeppa/actions/runs/43362302589)。已开启 [Issues](https://github.com/Aelurillus/Jeppa/issues)、[Discussions](https://github.com/Aelurillus/Jeppa/discussions)、私下漏洞报告、Dependabot alerts/安全更新，以及 secret scanning/push protection。`main` 要求通过绑定 GitHub Actions 的 `Repository checks` 并经 PR 合并，不要求他人批准或 CODEOWNER 审批；管理员可绕过，禁止强推和删除分支。上述为主仓库已核实的设置，不会随 fork 自动复制，也不保证以后保持不变；以 GitHub 实际设置为准。
 
 ## 参与贡献
 

@@ -8,7 +8,9 @@
 
 不要在公开 issue、PR、讨论、CI 日志、附件或截图中披露真实 JWT、token、密码、私钥、Cookie、账号配置、个人资料或可直接利用的漏洞细节。不要为了复现提供自己的 Oopz 账号，也不要上传他人的凭证。
 
-优先检查仓库 GitHub 页面 Security → Advisories 是否存在 **Report a vulnerability** 按钮：只有维护者确实启用 private vulnerability reporting 后，它才是可用的私下报告入口。此文件不表示该功能已经开启，也不提供未经核实的邮箱或即时通信账号。
+在仓库 GitHub 页面 Security → Advisories 中检查 **Report a vulnerability** 按钮：只有维护者确实启用 private vulnerability reporting 后，它才是可用的私下报告入口。下文的主仓库确认不适用于 fork，也不提供未经核实的邮箱或即时通信账号。
+
+Jeppa 主仓库已开启私下漏洞报告，可通过 [Report a vulnerability](https://github.com/Aelurillus/Jeppa/security/advisories/new) 私下提交。此确认仅适用于主仓库；fork 或其他副本须检查其自身设置。
 
 如果没有该入口且没有已核实的私下联系渠道，请不要公开漏洞详情；可使用功能建议（Feature）表单提出“开启私下漏洞报告入口”的请求，各必填项仅说明建立私下报告渠道的需求，不附受影响地址、漏洞细节、复现材料或凭证，等待建立私下渠道后再报告。
 
