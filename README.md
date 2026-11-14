@@ -11,6 +11,8 @@
 
 Jeppa 负责消息收发、命令权限、冷却和数据存储，具体功能交给插件。目前只支持 Oopz 文字消息，没有接入 QQ、OneBot、语音或 AI，也没有管理面板。
 
+如果你在找 Oopz Bot、oopzBot 或 Oopz 机器人，Jeppa 提供的是可本地运行、可用 Python 扩展的文字机器人。Jeppa 与其使用的 Oopzbot-SDK 是独立项目，也不是 Oopz 官方机器人。
+
 [项目网站](https://aelurillus.github.io/Jeppa/) · [安装指南](https://aelurillus.github.io/Jeppa/guide.html) · [凭据接入](docs/credentials.md) · [版本下载](https://github.com/Aelurillus/Jeppa/releases) · [更新记录](CHANGELOG.md)
 
 > 这是非官方项目，通过社区 [Oopzbot-SDK](https://github.com/tangqingfeng7/Oopzbot-SDK) 接入，当前使用 `oopz-sdk 0.16.0`。使用前请确认账号和目标域的授权，并阅读 [Oopz 用户服务协议](https://help.oopz.cn/agreement/service)（尤其是 §3.6 的第三方工具接入限制）。项目的 MIT 许可不代表平台授权。
@@ -169,6 +171,30 @@ npm run check
 ```
 
 GitHub CI 覆盖 Windows / Ubuntu 和 Python 3.11 / 3.13；版本发布提供 wheel 和源码包，不自动部署机器人。每日任务会检查公开 SDK 和 Oopz 网页资源的变化，异常时更新维护 issue，供人工排查，不会自动升级依赖。它不登录账号，也不是平台可用性检测，详见[兼容性说明](https://aelurillus.github.io/Jeppa/compatibility.html)。
+
+### 官网收录与搜索维护
+
+官网源文件在 `site/`，合并到 `main` 后由 GitHub Pages 工作流部署。各内容页提供独立标题、摘要、规范地址和 Open Graph 分享信息；首页通过 Schema.org Microdata 描述源码项目，不需要放开现有 CSP 或增加第三方脚本。
+
+站点地图是 `site/sitemap.xml`，只列出公开内容页，不包含 `404.html`。新增、删除或移动页面时，同步修改站点地图、导航与对应页的 canonical；首页统一使用带结尾斜杠的 `/Jeppa/`，避免把 `index.html` 作为另一个规范地址。
+
+部署后的站点地图地址：
+
+```text
+https://aelurillus.github.io/Jeppa/sitemap.xml
+```
+
+首次提交需由站点维护者在自己的站长平台账号中完成：
+
+1. 在 [Google Search Console](https://search.google.com/search-console/) 添加网址前缀资源 `https://aelurillus.github.io/Jeppa/`。选择 HTML 文件验证，将平台提供的原始验证文件放入 `site/`，部署后完成验证；保留该文件供后续复核。不要使用不受自己控制的 `github.io` 域名做 DNS 验证。
+   当前已添加 `site/google945853c7da79b3e2.html`；后续部署必须原样保留，不改名、不套用页面模板，也不要加入站点地图。验证成功后仍需保留。公开地址为 `https://aelurillus.github.io/Jeppa/google945853c7da79b3e2.html`。
+2. 在该资源的 Sitemaps 页面提交上面的完整地址，再用网址检查工具检查首页并申请编入索引。
+3. 在 [Bing Webmaster Tools](https://www.bing.com/webmasters/) 添加并验证同一站点，或使用平台提供的 Search Console 导入方式，再提交相同站点地图。其他搜索平台也需在各自后台验证和提交，不能由仓库中的文件代替。
+4. 在站长平台查看抓取错误、索引状态和 Jeppa / Oopz Bot 等查询的展示数据；搜索结果里暂时没有出现，不能单凭这一点断定具体的未收录原因。
+
+这是 GitHub Pages 项目子路径站点。爬虫读取的是域名根路径 `/robots.txt`，放在 `/Jeppa/robots.txt` 不会成为有效的 robots 规则，因此本仓库不添加误导性的子路径文件。若维护根站点，可在根路径 robots 中声明上述 sitemap；当前可以直接通过站长平台提交。根路径 robots 不存在本身不等于禁止抓取。
+
+站点地图帮助发现页面，不保证收录或排名，也没有固定的生效时间。不要填入伪造的验证值、排名承诺或隐藏关键词。参考 [Google 所有权验证](https://support.google.com/webmasters/answer/9008080)、[请求重新抓取](https://developers.google.com/search/docs/crawling-indexing/ask-google-to-recrawl)及 [robots 文件位置规则](https://developers.google.com/crawling/docs/robots-txt/create-robots-txt)。
 
 贡献前请看 [CONTRIBUTING.md](CONTRIBUTING.md)。报告问题时请附上版本、复现步骤和脱敏日志；账号凭据、原始请求和安全漏洞请勿公开提交，安全问题按 [SECURITY.md](SECURITY.md) 联系维护者。
 

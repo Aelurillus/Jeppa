@@ -1,8 +1,19 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Jeppa 0.3.0 插件开发：稳定 PluginInfo、公开 Runtime API、作用域、数据命名空间、清理与可信代码边界。"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>插件开发 · Jeppa</title><link rel="icon" href="assets/icon.png" type="image/png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js" defer></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="使用 Python 为 Jeppa Oopz 机器人开发命令插件：PluginInfo 元数据、异步回复、Runtime API、作用域、数据存储与资源清理。"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Python Oopz Bot 插件开发指南 · Jeppa</title><link rel="icon" href="assets/icon.png" type="image/png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js" defer></script>
+  <link rel="canonical" href="https://aelurillus.github.io/Jeppa/plugins.html">
+  <link rel="sitemap" type="application/xml" href="sitemap.xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Jeppa">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="Python Oopz Bot 插件开发指南 · Jeppa">
+  <meta property="og:description" content="使用 Python 为 Jeppa Oopz 机器人开发命令插件：PluginInfo 元数据、异步回复、Runtime API、作用域、数据存储与资源清理。">
+  <meta property="og:url" content="https://aelurillus.github.io/Jeppa/plugins.html">
+  <meta property="og:image" content="https://aelurillus.github.io/Jeppa/assets/logo.png">
+  <meta property="og:image:alt" content="Jeppa 项目标志">
+  <meta name="twitter:card" content="summary">
 </head>
 <body>
   <a class="skip" href="#main">跳到主要内容</a><header class="site-header"><div class="container header-inner"><a class="brand" href="index.html" aria-label="Jeppa 首页"><img class="logo-light" src="assets/logo.png" width="160" height="50" alt="Jeppa"><img class="logo-dark" src="assets/logo-dark.png" width="160" height="50" alt=""><span class="version">0.3.0</span></a><nav class="site-nav" aria-label="主导航"><a href="index.html">概览</a><a href="guide.html">开始使用</a><a href="credentials.html">本地凭据</a><a href="plugins.html" aria-current="page">插件开发</a><a href="compatibility.html">兼容性</a></nav><button class="theme-toggle" type="button" aria-label="当前主题：跟随系统，点击切换" hidden>主题：跟随系统</button></div></header>
